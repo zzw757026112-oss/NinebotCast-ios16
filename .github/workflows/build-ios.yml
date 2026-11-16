@@ -41,20 +41,20 @@ jobs:
       # Xcode 16.x targets iOS 16.0 and ships Swift 6.0. Do NOT use
       # Xcode 26 here: newer SDKs link symbols iOS 16.4.1 does not
       # provide (that is exactly what killed the original 1.0.1).
+      # Prefer Xcode 16.4: the runner ships the iOS 18.5 simulator
+      # runtime (22F77) but NOT the iOS 18.2 runtime (22C146) that
+      # Xcode 16.2 needs to compile the app-icon asset catalog —
+      # run #3 failed on exactly that ("No simulator runtime
+      # version ... available to use with iphonesimulator SDK
+      # version 22C146").
       - name: Select Xcode 16.x
         run: |
           ls /Applications | grep -i xcode || true
-          if [ -d /Applications/Xcode_16.2.app ]; then
-            sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
-          elif [ -d /Applications/Xcode_16.4.app ]; then
+          if [ -d /Applications/Xcode_16.4.app ]; then
             sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
-          elif [ -d /Applications/Xcode_16.3.app ]; then
-            sudo xcode-select -s /Applications/Xcode_16.3.app/Contents/Developer
-          elif [ -d /Applications/Xcode_16.1.app ]; then
-            sudo xcode-select -s /Applications/Xcode_16.1.app/Contents/Developer
           else
-            for d in /Applications/Xcode_16*.app; do
-              [ -d "$d" ] && sudo xcode-select -s "$d/Contents/Developer" && break
+            for d in $(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -r); do
+              sudo xcode-select -s "$d/Contents/Developer" && break
             done
           fi
           xcodebuild -version
