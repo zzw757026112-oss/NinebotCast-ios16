@@ -1,0 +1,104 @@
+# Build the patched NinebotCast (iOS 16.4.1) on a GitHub-hosted macOS
+# runner and produce an unsigned IPA. No Mac, no signing identity,
+# no certificates and no secrets are needed.
+#
+# Trigger: on every push, or manually from the Actions tab
+# (workflow_dispatch). The built IPA is uploaded as a workflow
+# artifact; download it from the completed run and self-sign it
+# on your own device.
+name: Build iOS (unsigned IPA)
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build unsigned IPA
+    runs-on: macos-15
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      # Xcode 16.x targets iOS 16.0 and ships Swift 6.0. Do NOT use
+      # Xcode 26 here: newer SDKs link symbols iOS 16.4.1 does not
+      # provide (that is exactly what killed the original 1.0.1).
+      - name: Select Xcode 16.x
+        run: |
+          ls /Applications | grep -i xcode || true
+          if [ -d /Applications/Xcode_16.2.app ]; then
+            sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+          elif [ -d /Applications/Xcode_16.4.app ]; then
+            sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
+          elif [ -d /Applications/Xcode_16.3.app ]; then
+            sudo xcode-select -s /Applications/Xcode_16.3.app/Contents/Developer
+          elif [ -d /Applications/Xcode_16.1.app ]; then
+            sudo xcode-select -s /Applications/Xcode_16.1.app/Contents/Developer
+          else
+            for d in /Applications/Xcode_16*.app; do
+              [ -d "$d" ] && sudo xcode-select -s "$d/Contents/Developer" && break
+            done
+          fi
+          xcodebuild -version
+          swift --version
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Archive (Release, no signing)
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project NinebotCast.xcodeproj \
+            -scheme NinebotCast \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath build/NinebotCast.xcarchive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" \
+            2>&1 | tee build.log
+
+      # If the build fails, surface the actual error lines as job
+      # annotations: they are visible on the public run page without
+      # signing in, so the log does not have to be fetched by hand.
+      - name: Show build errors as annotations
+        if: failure()
+        run: |
+          grep -E "error:" build.log | head -40 | while IFS= read -r line; do
+            echo "::error::$line"
+          done
+          echo "---- tail of build.log ----"
+          tail -30 build.log
+
+      - name: Verify the built app targets iOS 16.0
+        run: |
+          APP="build/NinebotCast.xcarchive/Products/Applications/NinebotCast.app"
+          test -d "$APP" || { echo "Built app not found at $APP"; exit 1; }
+          MIN_OS=$(/usr/libexec/PlistBuddy -c "Print :MinimumOSVersion" "$APP/Info.plist")
+          test "$MIN_OS" = "16.0" || { echo "MinimumOSVersion is $MIN_OS, expected 16.0"; exit 1; }
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Info.plist"
+
+      - name: Package unsigned IPA
+        run: |
+          APP="build/NinebotCast.xcarchive/Products/Applications/NinebotCast.app"
+          rm -rf Payload NinebotCast-0.19.0-ios16-unsigned.ipa
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -r -y NinebotCast-0.19.0-ios16-unsigned.ipa Payload
+          rm -rf Payload
+          ls -lh NinebotCast-0.19.0-ios16-unsigned.ipa
+          shasum -a 256 NinebotCast-0.19.0-ios16-unsigned.ipa | tee SHA256SUMS.txt
+          unzip -l NinebotCast-0.19.0-ios16-unsigned.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NinebotCast-0.19.0-ios16-unsigned-ipa
+          path: |
+            NinebotCast-0.19.0-ios16-unsigned.ipa
+            SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
