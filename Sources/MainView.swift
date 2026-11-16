@@ -3,6 +3,7 @@ import PhotosUI
 import UIKit
 import CoreImage
 import UniformTypeIdentifiers
+import ReplayKit
 
 enum AppVersion {
     static var short: String {
@@ -69,6 +70,7 @@ struct MainView: View {
                     header
                     connectionCard
                     sourceCard
+                    mirrorCard
                     metricsCard
                     diagCard
                     footer
@@ -501,6 +503,29 @@ struct MainView: View {
             .foregroundColor(cameraPositionIndex == index ? Color.primary : Color.secondary)
         }
         .buttonStyle(.plain)
+    }
+
+    // MARK: - 屏幕镜像（录屏广播扩展）
+    private var mirrorCard: some View {
+        card("屏幕镜像", icon: "rectangle.on.rectangle") {
+            Text("把整块手机屏幕实时投到仪表：抖音、地图、视频都能投。只传画面，没有声音。")
+                .font(.footnote)
+                .foregroundColor(.secondary)
+            HStack(spacing: 12) {
+                BroadcastPickerButton()
+                    .frame(width: 44, height: 44)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("点左边按钮 → 选 NinebotCast → 开始直播")
+                        .font(.subheadline.weight(.semibold))
+                    Text("停止：控制中心长按屏幕录制 → 停止，或回 App 再点一次按钮。")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            Text("开始前：仪表先进投屏接收态，强退九号出行（它占着 5012/5013 端口），并先停掉上面的普通投屏；先用测试图成功投一次，让系统弹过局域网权限。竖屏画面在横屏仪表上是中间一条竖条，两边黑边；横屏看视频基本铺满。只支持五寸 H.264 模式。")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
     }
 
     // MARK: - 指标
@@ -997,4 +1022,17 @@ struct MainView: View {
             }
         }
     }
+}
+
+/// 系统录屏选择器：点一下弹出广播列表，选 NinebotCast 即开始屏幕镜像。
+/// preferredExtension 预选我们的录屏扩展，省得用户在列表里找。
+struct BroadcastPickerButton: UIViewRepresentable {
+    func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
+        let view = RPSystemBroadcastPickerView()
+        view.preferredExtension = "com.corpsezhao.ninebotcast.screencast"
+        view.showsMicrophoneButton = false
+        return view
+    }
+
+    func updateUIView(_ uiView: RPSystemBroadcastPickerView, context: Context) {}
 }
