@@ -33,7 +33,6 @@ struct MainView: View {
     @State private var showTools = false
     @State private var showAdvanced = false
     @State private var showDiag = false
-    @State private var showBroadcastChooser = false
     @State private var scanning = false
     @State private var tcpScanning = false
     @State private var probing = false
@@ -84,7 +83,6 @@ struct MainView: View {
         .overlay(alignment: .bottom) { actionBar }
         .sheet(isPresented: $showImagePreview) { imagePreviewSheet }
         .sheet(isPresented: $showTools) { toolsSheet }
-        .sheet(isPresented: $showBroadcastChooser) { BroadcastActivityView() }
         .onAppear {
             localIP = LanScanner.localIPv4() ?? "未连 Wi-Fi"
             if host.isEmpty { host = LanScanner.gatewayGuess() ?? "" }
@@ -525,7 +523,7 @@ struct MainView: View {
                 }
             }
             Button("上面按钮没显示？点这里开始镜像") {
-                showBroadcastChooser = true
+                presentBroadcastChooser()
             }
             .font(.caption)
             .foregroundColor(accent)
@@ -1046,25 +1044,23 @@ struct BroadcastPickerButton: UIViewRepresentable {
     func updateUIView(_ uiView: RPSystemBroadcastPickerView, context: Context) {}
 }
 
-/// 备用入口：如果系统录屏选择器按钮还是渲染不出来，点文字按钮弹出系统广播列表选 NinebotCast。
-struct BroadcastActivityView: UIViewControllerRepresentable {
-    @Environment(\.dismiss) private var dismiss
+/// 备用入口：用系统原生的 present 方式弹出广播列表。
+/// 注意：不要用 SwiftUI sheet 包 RPBroadcastActivityViewController，
+/// 在 iOS 16 上 sheet 里这个控制器会显示空白。
+final class BroadcastActivityDelegate: NSObject, RPBroadcastActivityViewControllerDelegate {
+    static let shared = BroadcastActivityDelegate()
 
-    func makeUIViewController(context: Context) -> RPBroadcastActivityViewController {
-        let vc = RPBroadcastActivityViewController()
-        vc.delegate = context.coordinator
-        return vc
+    func broadcastActivityViewController(_ broadcastActivityViewController: RPBroadcastActivityViewController, didFinishWith broadcastController: RPBroadcastController?, error: Error?) {
+        broadcastActivityViewController.dismiss(animated: true)
     }
+}
 
-    func updateUIViewController(_ uiViewController: RPBroadcastActivityViewController, context: Context) {}
-
-    func makeCoordinator() -> Coordinator { Coordinator { dismiss() } }
-
-    final class Coordinator: NSObject, RPBroadcastActivityViewControllerDelegate {
-        let dismiss: () -> Void
-        init(_ dismiss: @escaping () -> Void) { self.dismiss = dismiss }
-        func broadcastActivityViewController(_ broadcastActivityViewController: RPBroadcastActivityViewController, didFinishWith broadcastController: RPBroadcastController?, error: Error?) {
-            dismiss()
-        }
-    }
+func presentBroadcastChooser() {
+    guard let scene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,
+          let window = scene.windows.first(where: { $0.isKeyWindow }),
+          var top = window.rootViewController else { return }
+    while let presented = top.presentedViewController { top = presented }
+    let vc = RPBroadcastActivityViewController()
+    vc.delegate = BroadcastActivityDelegate.shared
+    top.present(vc, animated: true)
 }
