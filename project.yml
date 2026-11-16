@@ -52,6 +52,8 @@ targets:
     platform: iOS
     sources:
       - path: Broadcast
+        excludes:
+          - README.md
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.corpsezhao.ninebotcast.screencast
@@ -61,6 +63,14 @@ targets:
         CFBundleDisplayName: NinebotCast
         CFBundleShortVersionString: "0.20.0"
         CFBundleVersion: "20"
+        # NSExtension MUST live here: xcodegen writes only the
+        # properties into the plist, so the NSExtension dict that
+        # used to live only in Broadcast/Info.plist was lost and
+        # the 0.20.0 build's extension had no NSExtension key —
+        # iOS would not recognise it as a broadcast extension.
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.broadcast-services-upload
+          NSExtensionPrincipalClass: ScreenCast.SampleHandler
 
 schemes:
   NinebotCast:
