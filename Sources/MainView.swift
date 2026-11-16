@@ -522,11 +522,6 @@ struct MainView: View {
                         .foregroundColor(.secondary)
                 }
             }
-            Button("上面按钮没显示？点这里开始镜像") {
-                presentBroadcastChooser()
-            }
-            .font(.caption)
-            .foregroundColor(accent)
             Text("开始前：仪表先进投屏接收态，强退九号出行（它占着 5012/5013 端口），并先停掉上面的普通投屏；先用测试图成功投一次，让系统弹过局域网权限。竖屏画面在横屏仪表上是中间一条竖条，两边黑边；横屏看视频基本铺满。只支持五寸 H.264 模式。")
                 .font(.caption2)
                 .foregroundColor(.secondary)
@@ -1042,25 +1037,4 @@ struct BroadcastPickerButton: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: RPSystemBroadcastPickerView, context: Context) {}
-}
-
-/// 备用入口：用系统原生的 present 方式弹出广播列表。
-/// 注意：不要用 SwiftUI sheet 包 RPBroadcastActivityViewController，
-/// 在 iOS 16 上 sheet 里这个控制器会显示空白。
-final class BroadcastActivityDelegate: NSObject, RPBroadcastActivityViewControllerDelegate {
-    static let shared = BroadcastActivityDelegate()
-
-    func broadcastActivityViewController(_ broadcastActivityViewController: RPBroadcastActivityViewController, didFinishWith broadcastController: RPBroadcastController?, error: Error?) {
-        broadcastActivityViewController.dismiss(animated: true)
-    }
-}
-
-func presentBroadcastChooser() {
-    guard let scene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,
-          let window = scene.windows.first(where: { $0.isKeyWindow }),
-          var top = window.rootViewController else { return }
-    while let presented = top.presentedViewController { top = presented }
-    let vc = RPBroadcastActivityViewController()
-    vc.delegate = BroadcastActivityDelegate.shared
-    top.present(vc, animated: true)
 }
