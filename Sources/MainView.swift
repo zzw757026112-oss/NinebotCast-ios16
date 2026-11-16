@@ -33,6 +33,7 @@ struct MainView: View {
     @State private var showTools = false
     @State private var showAdvanced = false
     @State private var showDiag = false
+    @State private var showBroadcastChooser = false
     @State private var scanning = false
     @State private var tcpScanning = false
     @State private var probing = false
@@ -83,6 +84,7 @@ struct MainView: View {
         .overlay(alignment: .bottom) { actionBar }
         .sheet(isPresented: $showImagePreview) { imagePreviewSheet }
         .sheet(isPresented: $showTools) { toolsSheet }
+        .sheet(isPresented: $showBroadcastChooser) { BroadcastActivityView() }
         .onAppear {
             localIP = LanScanner.localIPv4() ?? "未连 Wi-Fi"
             if host.isEmpty { host = LanScanner.gatewayGuess() ?? "" }
@@ -522,6 +524,11 @@ struct MainView: View {
                         .foregroundColor(.secondary)
                 }
             }
+            Button("上面按钮没显示？点这里开始镜像") {
+                showBroadcastChooser = true
+            }
+            .font(.caption)
+            .foregroundColor(accent)
             Text("开始前：仪表先进投屏接收态，强退九号出行（它占着 5012/5013 端口），并先停掉上面的普通投屏；先用测试图成功投一次，让系统弹过局域网权限。竖屏画面在横屏仪表上是中间一条竖条，两边黑边；横屏看视频基本铺满。只支持五寸 H.264 模式。")
                 .font(.caption2)
                 .foregroundColor(.secondary)
@@ -1028,11 +1035,36 @@ struct MainView: View {
 /// preferredExtension 预选我们的录屏扩展，省得用户在列表里找。
 struct BroadcastPickerButton: UIViewRepresentable {
     func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
-        let view = RPSystemBroadcastPickerView()
+        // 必须带一个非零 frame 创建：零 frame 创建时内部按钮按零尺寸布局，
+        // 之后 SwiftUI 再改尺寸也不会重新布局，按钮就一直空白。
+        let view = RPSystemBroadcastPickerView(frame: CGRect(x: 0, y: 0, width: 44, height: 44))
         view.preferredExtension = "com.corpsezhao.ninebotcast.screencast"
         view.showsMicrophoneButton = false
         return view
     }
 
     func updateUIView(_ uiView: RPSystemBroadcastPickerView, context: Context) {}
+}
+
+/// 备用入口：如果系统录屏选择器按钮还是渲染不出来，点文字按钮弹出系统广播列表选 NinebotCast。
+struct BroadcastActivityView: UIViewControllerRepresentable {
+    @Environment(\.dismiss) private var dismiss
+
+    func makeUIViewController(context: Context) -> RPBroadcastActivityViewController {
+        let vc = RPBroadcastActivityViewController()
+        vc.delegate = context.coordinator
+        return vc
+    }
+
+    func updateUIViewController(_ uiViewController: RPBroadcastActivityViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator { dismiss() } }
+
+    final class Coordinator: NSObject, RPBroadcastActivityViewControllerDelegate {
+        let dismiss: () -> Void
+        init(_ dismiss: @escaping () -> Void) { self.dismiss = dismiss }
+        func broadcastActivityViewController(_ broadcastActivityViewController: RPBroadcastActivityViewController, didFinishWith broadcastController: RPBroadcastController?, error: Error?) {
+            dismiss()
+        }
+    }
 }
