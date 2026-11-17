@@ -4,7 +4,12 @@ import CoreVideo
 import Foundation
 import os.log
 
-/// 把录屏帧按 fit 缩放到 848x480（黑边填充），复用目标 buffer。
+/// 把录屏帧缩放到 848x480，复用目标 buffer。
+///
+/// 横屏源（宽 > 高，如手机横过来）：裁满（fill）——按大边缩放、居中裁掉
+/// 多余的两边，铺满整个仪表，没有黑边。代价是左右各裁掉约 9% 的画面。
+/// 竖屏源：保持 fit（整屏可见、两边黑边），因为竖屏画面裁满会把上下
+/// 裁掉四分之三，没法看；竖屏在横屏仪表上本来就是中间一条竖条。
 ///
 /// 内存纪律（录屏扩展只有约 50MB 预算）：
 /// - 目标 buffer 只建 3 个轮换：VT 编码器可能还捏着前一帧，复用同一个
@@ -55,6 +60,10 @@ final class ScreenScaler {
 
         let format = CVPixelBufferGetPixelFormatType(src)
         if format == kCVPixelFormatType_32BGRA {
+            // 横屏裁满、竖屏 fit
+            if srcWidth > srcHeight {
+                return scaleFillBGRA(src, srcWidth: srcWidth, srcHeight: srcHeight, dest: dest)
+            }
             return scaleBGRA(src, srcWidth: srcWidth, srcHeight: srcHeight, dest: dest)
         }
         if !loggedFallback {
@@ -106,12 +115,68 @@ final class ScreenScaler {
         return dest
     }
 
+    // MARK: - vImage 裁满（横屏：铺满 848x480，两边裁掉多余部分）
+
+    private func scaleFillBGRA(_ src: CVPixelBuffer, srcWidth: Int, srcHeight: Int,
+                               dest: CVPixelBuffer) -> CVPixelBuffer? {
+        CVPixelBufferLockBaseAddress(src, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(src, .readOnly) }
+        CVPixelBufferLockBaseAddress(dest, [])
+        defer { CVPixelBufferUnlockBaseAddress(dest, []) }
+
+        guard let srcBase = CVPixelBufferGetBaseAddress(src),
+              let destBase = CVPixelBufferGetBaseAddress(dest) else { return nil }
+        let srcRowBytes = CVPixelBufferGetBytesPerRow(src)
+        let destRowBytes = CVPixelBufferGetBytesPerRow(dest)
+
+        // 按大边缩放：缩放后一边等于目标尺寸，另一边超出目标尺寸
+        let scale = max(Double(outWidth) / Double(srcWidth),
+                        Double(outHeight) / Double(srcHeight))
+        let sw = max(outWidth, max(2, Int(Double(srcWidth) * scale) & ~1))
+        let sh = max(outHeight, max(2, Int(Double(srcHeight) * scale) & ~1))
+
+        // 先缩放到临时 buffer（横屏手机源约 1040x480，约 2MB），再居中拷出 848x480
+        guard let tmp = malloc(sw * sh * 4) else {
+            log.error("裁满临时 buffer 分配失败 \(sw)x\(sh)")
+            return nil
+        }
+        defer { free(tmp) }
+
+        var srcBuf = vImage_Buffer(data: srcBase,
+                                   height: vImagePixelCount(srcHeight),
+                                   width: vImagePixelCount(srcWidth),
+                                   rowBytes: srcRowBytes)
+        var tmpBuf = vImage_Buffer(data: tmp,
+                                   height: vImagePixelCount(sh),
+                                   width: vImagePixelCount(sw),
+                                   rowBytes: sw * 4)
+        var err = vImageScale_ARGB8888(&srcBuf, &tmpBuf, nil, vImage_Flags(kvImageNoFlags))
+        guard err == kvImageNoError else {
+            log.error("vImageScale（裁满）失败 \(err)")
+            return nil
+        }
+
+        let sx = ((sw - outWidth) / 2) & ~1
+        let sy = ((sh - outHeight) / 2) & ~1
+        let tmpRowBytes = sw * 4
+        for y in 0..<outHeight {
+            let srcRow = tmp.advanced(by: (sy + y) * tmpRowBytes + sx * 4)
+            let dstRow = destBase.advanced(by: y * destRowBytes)
+            memcpy(dstRow, srcRow, outWidth * 4)
+        }
+        return dest
+    }
+
     // MARK: - CoreImage 兜底（非 BGRA 源）
 
     private func scaleViaCoreImage(_ src: CVPixelBuffer, srcWidth: Int, srcHeight: Int,
                                    dest: CVPixelBuffer) -> CVPixelBuffer? {
-        let scale = min(Double(outWidth) / Double(srcWidth),
-                        Double(outHeight) / Double(srcHeight))
+        // 横屏裁满、竖屏 fit；裁满时 dx/dy 为负，render 时按 bounds 裁掉超出部分
+        let scale = srcWidth > srcHeight
+            ? max(Double(outWidth) / Double(srcWidth),
+                  Double(outHeight) / Double(srcHeight))
+            : min(Double(outWidth) / Double(srcWidth),
+                  Double(outHeight) / Double(srcHeight))
         let dw = Double(srcWidth) * scale
         let dh = Double(srcHeight) * scale
         let dx = (Double(outWidth) - dw) / 2
