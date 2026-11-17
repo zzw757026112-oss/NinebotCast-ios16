@@ -718,9 +718,6 @@ struct MainView: View {
 
     private var footer: some View {
         VStack(spacing: 6) {
-            Text("UDP 5012 视频 · 5013 心跳 · 协议对齐官方 APK")
-                .font(.caption2)
-                .foregroundColor(.secondary.opacity(0.8))
             Link(destination: Self.projectURL) {
                 HStack(spacing: 4) {
                     Image(systemName: "link")
