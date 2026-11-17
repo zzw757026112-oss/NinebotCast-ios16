@@ -21,6 +21,7 @@ targets:
     sources:
       - path: Sources
       - path: Vendor/kcp
+      - path: Shared/HUDOverlay.swift
     dependencies:
       - target: ScreenCast
     settings:
@@ -33,13 +34,14 @@ targets:
       path: Support/Info.plist
       properties:
         CFBundleDisplayName: Ninebot Pro+
-        CFBundleShortVersionString: "1.0.3"
-        CFBundleVersion: "27"
+        CFBundleShortVersionString: "1.0.4"
+        CFBundleVersion: "28"
         UILaunchScreen: {}
         UIBackgroundModes: [audio]
         NSLocalNetworkUsageDescription: 用于连接九号仪表并发送投屏画面（UDP 5012/5013）。
         NSCameraUsageDescription: 用于摄像头画面投屏。
         NSPhotoLibraryUsageDescription: 用于相册图片和视频投屏。
+        NSLocationWhenInUseUsageDescription: 用于显示当地天气（按定位取天气，叠加到仪表画面上）。
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
@@ -54,6 +56,7 @@ targets:
       - path: Broadcast
         excludes:
           - README.md
+      - path: Shared/HUDOverlay.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.corpsezhao.ninebotcast.screencast
@@ -61,8 +64,8 @@ targets:
       path: Broadcast/Info.plist
       properties:
         CFBundleDisplayName: Ninebot Pro+
-        CFBundleShortVersionString: "1.0.3"
-        CFBundleVersion: "27"
+        CFBundleShortVersionString: "1.0.4"
+        CFBundleVersion: "28"
         # NSExtension MUST live here: xcodegen writes only the
         # properties into the plist, so the NSExtension dict that
         # used to live only in Broadcast/Info.plist was lost and

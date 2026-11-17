@@ -446,7 +446,10 @@ final class CastEngine: ObservableObject {
         inflightFrames += 1
         inflightLock.unlock()
         frameIndex &+= 1
-        encoder.encode(buffer, presentationTime: CMTime(value: frameIndex, timescale: activeFps))
+        // HUD 叠加（电量/日期/天气/来电）：画进一份拷贝再编码，
+        // 相册图片 buffer 是静态复用的，不能原地画。拷贝失败就用原帧。
+        let framed = HUDRenderer.drawCopy(of: buffer) ?? buffer
+        encoder.encode(framed, presentationTime: CMTime(value: frameIndex, timescale: activeFps))
     }
 
     // MARK: - 编码输出 → 打包 → 限流发送

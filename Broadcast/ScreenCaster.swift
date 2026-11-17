@@ -284,6 +284,10 @@ final class ScreenCaster {
         guard inflight < 2 else { return } // 编码器已压 2 帧：跳过这一拍
         guard let scaler, let scaled = scaler.scale(pixelBuffer) else { return }
 
+        // HUD 叠加（电量/日期/天气/来电）：scaler 每帧都会把目标 buffer
+        // 完整重画，原地画是安全的，不会叠字。
+        HUDRenderer.draw(on: scaled)
+
         lastSubmitTime = now
         inflightLock.lock()
         inflightFrames += 1
