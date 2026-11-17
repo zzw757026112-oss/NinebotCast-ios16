@@ -2,7 +2,18 @@ import Accelerate
 import CoreImage
 import CoreVideo
 import Foundation
+import UIKit
 import os.log
+
+/// 转正方向：录屏帧本身不会跟着手机转。
+/// 手机横过来时，帧还是竖的（1290x2796），横屏内容横着存在里面；
+/// 竖屏内容保持竖条 fit，横屏内容先转正再裁满。
+/// 方向按实测照片定：用户那次横屏内容在帧里是顺时针歪的，
+/// 逆时针转回来是正的。
+private enum MirrorRotation {
+    case rotateCW        // 内容逆时针歪 → 顺时针转正（手机 landscapeLeft）
+    case rotateCCW       // 内容顺时针歪 → 逆时针转正（手机 landscapeRight）
+}
 
 /// 把录屏帧缩放到 848x480，复用目标 buffer。
 ///
@@ -25,6 +36,12 @@ final class ScreenScaler {
     private var nextIndex = 0
     private lazy var ciContext = CIContext(options: [.useSoftwareRenderer: false])
     private var loggedFallback = false
+    private var lastRotation: MirrorRotation?
+
+    init() {
+        // 让 UIDevice.current.orientation 可读：不调用这个，orientation 恒为 unknown。
+        UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+    }
 
     private func makeDestBuffer() -> CVPixelBuffer? {
         var buffer: CVPixelBuffer?
@@ -58,6 +75,18 @@ final class ScreenScaler {
         let dest = pool[nextIndex]
         nextIndex = (nextIndex + 1) % pool.count
 
+        // 横屏内容存在竖帧里时先转正（方向见 rotationNeeded），再裁满。
+        // 只有竖帧才可能需要转；横帧直接走下面的缩放。
+        if let rotation = rotationNeeded(srcWidth: srcWidth, srcHeight: srcHeight) {
+            if lastRotation != rotation {
+                lastRotation = rotation
+                log.info("横屏内容在竖帧里，转正方向：\(rotation == .rotateCW ? "顺时针" : "逆时针")")
+            }
+            return scaleRotated(src, srcWidth: srcWidth, srcHeight: srcHeight,
+                                rotation: rotation, dest: dest)
+        }
+        lastRotation = nil
+
         let format = CVPixelBufferGetPixelFormatType(src)
         if format == kCVPixelFormatType_32BGRA {
             // 横屏裁满、竖屏 fit
@@ -71,6 +100,56 @@ final class ScreenScaler {
             log.info("源格式不是 BGRA (\(format))，改走 CoreImage 兜底")
         }
         return scaleViaCoreImage(src, srcWidth: srcWidth, srcHeight: srcHeight, dest: dest)
+    }
+
+    // MARK: - 转正（横屏内容存在竖帧里）
+
+    /// 帧是竖的但内容是横的，才需要转。方向按设备方向定：
+    /// landscapeLeft（手机逆时针横过来）内容逆时针歪，顺时针转正；
+    /// landscapeRight（手机顺时针横过来）内容顺时针歪，逆时针转正。
+    /// 设备方向读不到时（平放/未知），看屏幕本身是不是横的兜底，
+    /// 方向默认逆时针（按用户实测照片那次的情况）。
+    private func rotationNeeded(srcWidth: Int, srcHeight: Int) -> MirrorRotation? {
+        guard srcWidth < srcHeight else { return nil }
+        switch UIDevice.current.orientation {
+        case .landscapeLeft: return .rotateCW
+        case .landscapeRight: return .rotateCCW
+        default: break
+        }
+        if UIScreen.main.bounds.width > UIScreen.main.bounds.height {
+            return .rotateCCW
+        }
+        return nil
+    }
+
+    /// 转正 + 裁满，一步在 CoreImage 里完成，不用开整帧大 buffer
+    /// （竖帧全尺寸约 14MB，扩展内存预算只有约 50MB）。
+    /// CoreImage 里正角度是逆时针（y 朝上坐标系）。
+    private func scaleRotated(_ src: CVPixelBuffer, srcWidth: Int, srcHeight: Int,
+                              rotation: MirrorRotation, dest: CVPixelBuffer) -> CVPixelBuffer? {
+        let angle: CGFloat = rotation == .rotateCW ? -.pi / 2 : .pi / 2
+        let cx = CGFloat(srcWidth) / 2
+        let cy = CGFloat(srcHeight) / 2
+        let rot = CGAffineTransform(translationX: cx, y: cy)
+            .rotated(by: angle)
+            .translatedBy(x: -cx, y: -cy)
+        let image = CIImage(cvPixelBuffer: src).transformed(by: rot)
+        let r = image.extent // 转正后是 H x W，中心仍在 (cx, cy)
+        let scale = max(Double(outWidth) / r.width, Double(outHeight) / r.height)
+        let tx = (Double(outWidth) - r.width * scale) / 2 - Double(r.origin.x) * scale
+        let ty = (Double(outHeight) - r.height * scale) / 2 - Double(r.origin.y) * scale
+        let final = image
+            .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            .transformed(by: CGAffineTransform(translationX: tx, y: ty))
+
+        CVPixelBufferLockBaseAddress(dest, [])
+        defer { CVPixelBufferUnlockBaseAddress(dest, []) }
+        guard let destBase = CVPixelBufferGetBaseAddress(dest) else { return nil }
+        memset(destBase, 0, CVPixelBufferGetBytesPerRow(dest) * outHeight)
+        ciContext.render(final, to: dest,
+                         bounds: CGRect(x: 0, y: 0, width: outWidth, height: outHeight),
+                         colorSpace: CGColorSpaceCreateDeviceRGB())
+        return dest
     }
 
     // MARK: - vImage（BGRA 主路径）
