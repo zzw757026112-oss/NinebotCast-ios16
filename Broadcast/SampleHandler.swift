@@ -2,7 +2,7 @@ import CoreMedia
 import ReplayKit
 import os.log
 
-/// 录屏广播扩展：系统录屏（控制中心 → 屏幕录制 → 选 NinebotCast）启动后，
+/// 录屏广播扩展：系统录屏（控制中心 → 屏幕录制 → 选 Ninebot Pro+）启动后，
 /// iOS 把整块屏幕的帧送到这里，扩展缩放、编码、发给仪表。
 ///
 /// 只处理视频帧（.video），音频直接丢弃（仪表协议不传音频）。

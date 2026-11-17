@@ -32,7 +32,7 @@ targets:
     info:
       path: Support/Info.plist
       properties:
-        CFBundleDisplayName: Ninebot Cast
+        CFBundleDisplayName: Ninebot Pro+
         CFBundleShortVersionString: "0.20.5"
         CFBundleVersion: "25"
         UILaunchScreen: {}
@@ -60,7 +60,7 @@ targets:
     info:
       path: Broadcast/Info.plist
       properties:
-        CFBundleDisplayName: NinebotCast
+        CFBundleDisplayName: Ninebot Pro+
         CFBundleShortVersionString: "0.20.5"
         CFBundleVersion: "25"
         # NSExtension MUST live here: xcodegen writes only the

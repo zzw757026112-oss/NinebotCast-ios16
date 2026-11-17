@@ -1,7 +1,7 @@
 # 屏幕镜像（录屏广播扩展）
 
 iOS 官方录屏机制（ReplayKit Broadcast Upload Extension），无需越狱：
-用户在控制中心长按「屏幕录制」→ 选 NinebotCast → 开始直播，系统把
+用户在控制中心长按「屏幕录制」→ 选 Ninebot Pro+ → 开始直播，系统把
 整块屏幕的帧送到 `SampleHandler`，扩展缩放、编码、发给仪表。
 
 ## 文件

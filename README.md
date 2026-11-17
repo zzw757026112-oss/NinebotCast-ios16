@@ -1,4 +1,4 @@
-# NinebotCast (iOS 16.4.1 patched)
+# Ninebot Pro+ (iOS 16.4.1 patched)
 
 Fork of [Corpse-zhao/NinebotCast](https://github.com/Corpse-zhao/NinebotCast) (MIT),
 patched so the app launches on iOS 16.4.1.

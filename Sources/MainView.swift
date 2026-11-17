@@ -145,7 +145,7 @@ struct MainView: View {
     private var header: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Ninebot Cast")
+                Text("Ninebot Pro+")
                     .font(.system(size: 28, weight: .bold, design: .rounded))
                 HStack(spacing: 6) {
                     Circle()
@@ -515,7 +515,7 @@ struct MainView: View {
                 BroadcastPickerButton()
                     .frame(width: 44, height: 44)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("点左边按钮 → 选 NinebotCast → 开始直播")
+                    Text("点左边按钮 → 选 Ninebot Pro+ → 开始直播")
                         .font(.subheadline.weight(.semibold))
                     Text("停止：控制中心长按屏幕录制 → 停止，或回 App 再点一次按钮。")
                         .font(.caption)
@@ -1024,7 +1024,7 @@ struct MainView: View {
     }
 }
 
-/// 系统录屏选择器：点一下弹出广播列表，选 NinebotCast 即开始屏幕镜像。
+/// 系统录屏选择器：点一下弹出广播列表，选 Ninebot Pro+ 即开始屏幕镜像。
 /// preferredExtension 预选我们的录屏扩展，省得用户在列表里找。
 struct BroadcastPickerButton: UIViewRepresentable {
     func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
