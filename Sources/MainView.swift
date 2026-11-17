@@ -714,7 +714,7 @@ struct MainView: View {
     }
 
     // 项目主页：点开用 Safari 打开 GitHub 仓库
-    private static let projectURL = URL(string: "https://github.com/zzw757026112-oss/NinebotCast-ios16")!
+    private static let projectURL = URL(string: "https://github.com/zzw757026112-oss/NinebotPro-ios16")!
 
     private var footer: some View {
         VStack(spacing: 6) {
@@ -730,7 +730,7 @@ struct MainView: View {
                 .font(.caption.weight(.medium))
                 .foregroundColor(accent)
             }
-            Text("github.com/zzw757026112-oss/NinebotCast-ios16")
+            Text("github.com/zzw757026112-oss/NinebotPro-ios16")
                 .font(.caption2)
                 .foregroundColor(.secondary.opacity(0.8))
         }
