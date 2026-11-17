@@ -24,14 +24,14 @@ jobs:
       # GitHub API, so it is fetched at build time. Custom icon:
       # Fan Xiaoqin ("Little Jack Ma") as green Piccolo meme, cropped
       # to 1024x1024, hosted on Muse storage (link expires
-      # ~2026-11-19 20:37 CST, re-host if it is gone). Contents.json already
+      # ~2026-11-20 00:03 CST, re-host if it is gone). Contents.json already
       # references AppIcon1024.png; if the download fails, strip the
       # filename entry so the build still succeeds (but then the app
       # has no icon).
       - name: Fetch app icon (custom)
         run: |
           ICON="Sources/Assets.xcassets/AppIcon.appiconset/AppIcon1024.png"
-          if curl -fsSL "https://muse.ai/files/1428716783660521/1538501714777984/pb02qlu4k1mami4nuhxwj7cm/AppIcon1024.png" -o "$ICON" && [ -s "$ICON" ]; then
+          if curl -fsSL "https://muse.ai/files/1428716783660521/2191120571487953/t9tpthrlfsf6xent28e7g93o/AppIcon1024.png" -o "$ICON" && [ -s "$ICON" ]; then
             echo "icon downloaded: $(wc -c < "$ICON") bytes"
           else
             echo "icon download failed; building without icon"
@@ -107,21 +107,21 @@ jobs:
       - name: Package unsigned IPA
         run: |
           APP="build/Ninebot Pro+.xcarchive/Products/Applications/Ninebot Pro+.app"
-          rm -rf Payload NinebotProPlus-1.0.3-ios16-unsigned.ipa
+          rm -rf Payload NinebotProPlus-1.0.4-ios16-unsigned.ipa
           mkdir -p Payload
           cp -R "$APP" Payload/
-          zip -r -y NinebotProPlus-1.0.3-ios16-unsigned.ipa Payload
+          zip -r -y NinebotProPlus-1.0.4-ios16-unsigned.ipa Payload
           rm -rf Payload
-          ls -lh NinebotProPlus-1.0.3-ios16-unsigned.ipa
-          shasum -a 256 NinebotProPlus-1.0.3-ios16-unsigned.ipa | tee SHA256SUMS.txt
-          unzip -l NinebotProPlus-1.0.3-ios16-unsigned.ipa
+          ls -lh NinebotProPlus-1.0.4-ios16-unsigned.ipa
+          shasum -a 256 NinebotProPlus-1.0.4-ios16-unsigned.ipa | tee SHA256SUMS.txt
+          unzip -l NinebotProPlus-1.0.4-ios16-unsigned.ipa
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: NinebotProPlus-1.0.3-ios16-unsigned-ipa
+          name: NinebotProPlus-1.0.4-ios16-unsigned-ipa
           path: |
-            NinebotProPlus-1.0.3-ios16-unsigned.ipa
+            NinebotProPlus-1.0.4-ios16-unsigned.ipa
             SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30
