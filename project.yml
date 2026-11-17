@@ -1,4 +1,4 @@
-name: NinebotCast
+name: "Ninebot Pro+"
 options:
   bundleIdPrefix: com.corpsezhao
   deploymentTarget:
@@ -15,7 +15,7 @@ settings:
     TARGETED_DEVICE_FAMILY: "1"
 
 targets:
-  NinebotCast:
+  "Ninebot Pro+":
     type: application
     platform: iOS
     sources:
@@ -33,7 +33,7 @@ targets:
       path: Support/Info.plist
       properties:
         CFBundleDisplayName: Ninebot Pro+
-        CFBundleShortVersionString: "0.20.5"
+        CFBundleShortVersionString: "1.0.1"
         CFBundleVersion: "25"
         UILaunchScreen: {}
         UIBackgroundModes: [audio]
@@ -61,7 +61,7 @@ targets:
       path: Broadcast/Info.plist
       properties:
         CFBundleDisplayName: Ninebot Pro+
-        CFBundleShortVersionString: "0.20.5"
+        CFBundleShortVersionString: "1.0.1"
         CFBundleVersion: "25"
         # NSExtension MUST live here: xcodegen writes only the
         # properties into the plist, so the NSExtension dict that
@@ -73,10 +73,10 @@ targets:
           NSExtensionPrincipalClass: ScreenCast.SampleHandler
 
 schemes:
-  NinebotCast:
+  "Ninebot Pro+":
     build:
       targets:
-        NinebotCast: all
+        "Ninebot Pro+": all
     run:
       config: Debug
     archive:

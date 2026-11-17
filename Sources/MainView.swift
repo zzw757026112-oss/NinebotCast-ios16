@@ -713,11 +713,28 @@ struct MainView: View {
         }
     }
 
+    // 项目主页：点开用 Safari 打开 GitHub 仓库
+    private static let projectURL = URL(string: "https://github.com/zzw757026112-oss/NinebotCast-ios16")!
+
     private var footer: some View {
-        Text("UDP 5012 视频 · 5013 心跳 · 协议对齐官方 APK")
-            .font(.caption2)
-            .foregroundColor(.secondary.opacity(0.8))
-            .padding(.top, 4)
+        VStack(spacing: 6) {
+            Text("UDP 5012 视频 · 5013 心跳 · 协议对齐官方 APK")
+                .font(.caption2)
+                .foregroundColor(.secondary.opacity(0.8))
+            Link(destination: Self.projectURL) {
+                HStack(spacing: 4) {
+                    Image(systemName: "link")
+                    Text("点击打开项目")
+                    Image(systemName: "arrow.up.forward.app")
+                }
+                .font(.caption.weight(.medium))
+                .foregroundColor(accent)
+            }
+            Text("github.com/zzw757026112-oss/NinebotCast-ios16")
+                .font(.caption2)
+                .foregroundColor(.secondary.opacity(0.8))
+        }
+        .padding(.top, 4)
     }
 
     // MARK: - 底部主按钮
