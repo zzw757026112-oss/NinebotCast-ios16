@@ -727,9 +727,6 @@ struct MainView: View {
                 .font(.caption.weight(.medium))
                 .foregroundColor(accent)
             }
-            Text("github.com/zzw757026112-oss/NinebotPro-ios16")
-                .font(.caption2)
-                .foregroundColor(.secondary.opacity(0.8))
         }
         .padding(.top, 4)
     }
