@@ -1,4 +1,4 @@
-# Build the patched NinebotCast (iOS 16.4.1) on a GitHub-hosted macOS
+# Build the patched Ninebot Pro+ (iOS 16.4.1) on a GitHub-hosted macOS
 # runner and produce an unsigned IPA. No Mac, no signing identity,
 # no certificates and no secrets are needed.
 #
@@ -24,14 +24,14 @@ jobs:
       # GitHub API, so it is fetched at build time. Custom icon:
       # Fan Xiaoqin ("Little Jack Ma") as green Piccolo meme, cropped
       # to 1024x1024, hosted on Muse storage (link expires
-      # ~2026-11-19, re-host if it is gone). Contents.json already
+      # ~2026-11-19 20:37 CST, re-host if it is gone). Contents.json already
       # references AppIcon1024.png; if the download fails, strip the
       # filename entry so the build still succeeds (but then the app
       # has no icon).
       - name: Fetch app icon (custom)
         run: |
           ICON="Sources/Assets.xcassets/AppIcon.appiconset/AppIcon1024.png"
-          if curl -fsSL "https://muse.ai/files/1428716783660521/1126792189970622/0n8wbgxho4fllfgxbao7g0c6/AppIcon1024.png" -o "$ICON" && [ -s "$ICON" ]; then
+          if curl -fsSL "https://muse.ai/files/1428716783660521/1538501714777984/pb02qlu4k1mami4nuhxwj7cm/AppIcon1024.png" -o "$ICON" && [ -s "$ICON" ]; then
             echo "icon downloaded: $(wc -c < "$ICON") bytes"
           else
             echo "icon download failed; building without icon"
@@ -71,11 +71,11 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild archive \
-            -project NinebotCast.xcodeproj \
-            -scheme NinebotCast \
+            -project "Ninebot Pro+.xcodeproj" \
+            -scheme "Ninebot Pro+" \
             -configuration Release \
             -destination "generic/platform=iOS" \
-            -archivePath build/NinebotCast.xcarchive \
+            -archivePath "build/Ninebot Pro+.xcarchive" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" \
             2>&1 | tee build.log
 
@@ -93,7 +93,7 @@ jobs:
 
       - name: Verify the built app targets iOS 16.0
         run: |
-          APP="build/NinebotCast.xcarchive/Products/Applications/NinebotCast.app"
+          APP="build/Ninebot Pro+.xcarchive/Products/Applications/Ninebot Pro+.app"
           test -d "$APP" || { echo "Built app not found at $APP"; exit 1; }
           MIN_OS=$(/usr/libexec/PlistBuddy -c "Print :MinimumOSVersion" "$APP/Info.plist")
           test "$MIN_OS" = "16.0" || { echo "MinimumOSVersion is $MIN_OS, expected 16.0"; exit 1; }
@@ -106,22 +106,22 @@ jobs:
 
       - name: Package unsigned IPA
         run: |
-          APP="build/NinebotCast.xcarchive/Products/Applications/NinebotCast.app"
-          rm -rf Payload NinebotCast-0.20.4-ios16-unsigned.ipa
+          APP="build/Ninebot Pro+.xcarchive/Products/Applications/Ninebot Pro+.app"
+          rm -rf Payload NinebotProPlus-1.0.1-ios16-unsigned.ipa
           mkdir -p Payload
           cp -R "$APP" Payload/
-          zip -r -y NinebotCast-0.20.4-ios16-unsigned.ipa Payload
+          zip -r -y NinebotProPlus-1.0.1-ios16-unsigned.ipa Payload
           rm -rf Payload
-          ls -lh NinebotCast-0.20.4-ios16-unsigned.ipa
-          shasum -a 256 NinebotCast-0.20.4-ios16-unsigned.ipa | tee SHA256SUMS.txt
-          unzip -l NinebotCast-0.20.4-ios16-unsigned.ipa
+          ls -lh NinebotProPlus-1.0.1-ios16-unsigned.ipa
+          shasum -a 256 NinebotProPlus-1.0.1-ios16-unsigned.ipa | tee SHA256SUMS.txt
+          unzip -l NinebotProPlus-1.0.1-ios16-unsigned.ipa
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: NinebotCast-0.20.4-ios16-unsigned-ipa
+          name: NinebotProPlus-1.0.1-ios16-unsigned-ipa
           path: |
-            NinebotCast-0.20.4-ios16-unsigned.ipa
+            NinebotProPlus-1.0.1-ios16-unsigned.ipa
             SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30
