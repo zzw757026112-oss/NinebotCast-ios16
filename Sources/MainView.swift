@@ -17,6 +17,7 @@ enum AppVersion {
 
 struct MainView: View {
     @StateObject private var engine = CastEngine()
+    @StateObject private var vehicleBLE = VehicleBLE()
     @Environment(\.colorScheme) private var scheme
 
     // 设置持久化：下次打开不用重填
@@ -31,6 +32,9 @@ struct MainView: View {
     @AppStorage("nbc.hud.showWeather") private var hudShowWeather = true
     @AppStorage("nbc.hud.showSignal") private var hudShowSignal = true
     @AppStorage("nbc.hud.showBattery") private var hudShowBattery = true
+    @AppStorage("nbc.hud.showMusic") private var hudShowMusic = true
+    @AppStorage("nbc.hud.showVolume") private var hudShowVolume = true
+    @AppStorage("nbc.hud.showVehicle") private var hudShowVehicle = true
     @AppStorage("nbc.hud.position") private var hudPosition = 0 // 0 右下 1 左下 2 左上 3 右上
     @AppStorage("nbc.hud.fontSize") private var hudFontSize = 1 // 0 小 1 中 2 大
     @State private var gopIndex = 25            // 关键帧间隔（帧）
@@ -79,6 +83,7 @@ struct MainView: View {
                     connectionCard
                     sourceCard
                     mirrorCard
+                    vehicleCard
                     hudCard
                     metricsCard
                     diagCard
@@ -554,6 +559,9 @@ struct MainView: View {
             showWeather: hudShowWeather,
             showSignal: hudShowSignal,
             showBattery: hudShowBattery,
+            showMusic: hudShowMusic,
+            showVolume: hudShowVolume,
+            showVehicle: hudShowVehicle,
             position: positions[min(max(hudPosition, 0), positions.count - 1)],
             fontSize: sizes[min(max(hudFontSize, 0), sizes.count - 1)])
     }
@@ -572,6 +580,12 @@ struct MainView: View {
             Toggle("信号", isOn: $hudShowSignal)
                 .font(.subheadline)
             Toggle("电量", isOn: $hudShowBattery)
+                .font(.subheadline)
+            Toggle("音乐", isOn: $hudShowMusic)
+                .font(.subheadline)
+            Toggle("音量", isOn: $hudShowVolume)
+                .font(.subheadline)
+            Toggle("车辆", isOn: $hudShowVehicle)
                 .font(.subheadline)
             Picker("位置", selection: $hudPosition) {
                 Text("右下").tag(0)
@@ -594,8 +608,62 @@ struct MainView: View {
         .onChange(of: hudShowWeather) { _ in postHUDSettings() }
         .onChange(of: hudShowSignal) { _ in postHUDSettings() }
         .onChange(of: hudShowBattery) { _ in postHUDSettings() }
+        .onChange(of: hudShowMusic) { _ in postHUDSettings() }
+        .onChange(of: hudShowVolume) { _ in postHUDSettings() }
+        .onChange(of: hudShowVehicle) { _ in postHUDSettings() }
         .onChange(of: hudPosition) { _ in postHUDSettings() }
         .onChange(of: hudFontSize) { _ in postHUDSettings() }
+    }
+
+    /// 车辆蓝牙：直连滑板车（Max G2 / F2 系，Enc2），读速度/电压/电流/
+    /// 电量，仪表 HUD 上单独一个胶囊显示速度。注意：同一时间只能
+    /// 一个 App 连车——连之前先把九号出行彻底退出。首次配对可能要
+    /// 按一下车上的电源键；配对会覆盖官方 App 的密码，之后官方 App
+    /// 要重新配对才能连车。
+    private var vehicleCard: some View {
+        card("车辆蓝牙", icon: "bolt.car") {
+            HStack(spacing: 6) {
+                Image(systemName: vehicleBLE.isAuthenticated ? "checkmark.circle.fill"
+                    : (vehicleBLE.isConnected ? "clock" : "bluetooth"))
+                    .font(.system(size: 12))
+                Text(vehicleBLE.status)
+                    .font(.caption)
+                Spacer()
+                Button(vehicleBLE.isConnected ? "断开" : "连接") {
+                    if vehicleBLE.isConnected {
+                        vehicleBLE.disconnect()
+                    } else {
+                        vehicleBLE.connect()
+                    }
+                }
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(vehicleBLE.isConnected ? Color.red.opacity(0.12) : accent))
+                .foregroundColor(vehicleBLE.isConnected ? .red : .white)
+                .buttonStyle(.plain)
+            }
+            if vehicleBLE.isAuthenticated {
+                HStack(spacing: 0) {
+                    metric(vehicleBLE.speedKmh.map { String(format: "%.1f", $0) } ?? "—", "速度 km/h")
+                    divider
+                    metric(vehicleBLE.voltageV.map { String(format: "%.1f", $0) } ?? "—", "电压 V")
+                    divider
+                    metric(vehicleBLE.powerW.map { String(format: "%.0f", $0) } ?? "—", "功率 W")
+                    divider
+                    metric(vehicleBLE.batteryPct.map { "\($0)" } ?? "—", "电量 %")
+                }
+                if let current = vehicleBLE.currentA {
+                    Text("电流 \(String(format: "%.2f", current)) A（负值是在回充）")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+            Text("连之前先把九号出行彻底退出（一个蓝牙连接只能被一个 App 占着）。首次配对可能要按一下车上的电源键；配对会覆盖官方 App 的密码，之后官方 App 要重新配对。")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
     }
 
     /// 镜像方向：和图片来源同一个样式。0=自动（走方向接力），
@@ -819,9 +887,6 @@ struct MainView: View {
     // 项目主页：点开用 Safari 打开 GitHub 仓库
     private static let projectURL = URL(string: "https://github.com/zzw757026112-oss/NinebotPro-ios16")!
 
-    // 打赏：点开跳到支付宝收款链接
-    private static let donateURL = URL(string: "https://qr.alipay.com/2m614865zhw9pjqzkhlcjdc")!
-
     private var footer: some View {
         VStack(spacing: 6) {
             Link(destination: Self.projectURL) {
@@ -832,14 +897,6 @@ struct MainView: View {
                 }
                 .font(.caption.weight(.medium))
                 .foregroundColor(accent)
-            }
-            Link(destination: Self.donateURL) {
-                HStack(spacing: 4) {
-                    Image(systemName: "cup.and.saucer.fill")
-                    Text("本软件完全免费。制作不易，请我喝杯咖啡吧~")
-                }
-                .font(.caption.weight(.medium))
-                .foregroundColor(.orange)
             }
         }
         .padding(.top, 4)

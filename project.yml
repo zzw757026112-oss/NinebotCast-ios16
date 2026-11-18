@@ -24,6 +24,7 @@ targets:
       - path: Shared/HUDOverlay.swift
       - path: Shared/OrientationRelay.swift
       - path: Shared/HUDSettingsRelay.swift
+      - path: Shared/VehicleDataRelay.swift
     dependencies:
       - target: ScreenCast
     settings:
@@ -36,13 +37,14 @@ targets:
       path: Support/Info.plist
       properties:
         CFBundleDisplayName: Ninebot Pro+
-        CFBundleShortVersionString: "1.0.9"
-        CFBundleVersion: "33"
+        CFBundleShortVersionString: "1.1.0"
+        CFBundleVersion: "34"
         UILaunchScreen: {}
-        UIBackgroundModes: [audio]
+        UIBackgroundModes: [audio, bluetooth-central]
         NSLocalNetworkUsageDescription: 用于连接九号仪表并发送投屏画面（UDP 5012/5013）。
         NSCameraUsageDescription: 用于摄像头画面投屏。
         NSPhotoLibraryUsageDescription: 用于相册图片和视频投屏。
+        NSBluetoothAlwaysUsageDescription: 用于直连九号滑板车，读取速度、电量和电压，显示在仪表上。
         NSLocationWhenInUseUsageDescription: 用于显示当地天气（按定位取天气，叠加到仪表画面上）。
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -61,6 +63,7 @@ targets:
       - path: Shared/HUDOverlay.swift
       - path: Shared/OrientationRelay.swift
       - path: Shared/HUDSettingsRelay.swift
+      - path: Shared/VehicleDataRelay.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.corpsezhao.ninebotcast.screencast
@@ -68,8 +71,8 @@ targets:
       path: Broadcast/Info.plist
       properties:
         CFBundleDisplayName: Ninebot Pro+
-        CFBundleShortVersionString: "1.0.9"
-        CFBundleVersion: "33"
+        CFBundleShortVersionString: "1.1.0"
+        CFBundleVersion: "34"
         # NSExtension MUST live here: xcodegen writes only the
         # properties into the plist, so the NSExtension dict that
         # used to live only in Broadcast/Info.plist was lost and
