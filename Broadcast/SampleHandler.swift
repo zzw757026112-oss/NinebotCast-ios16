@@ -20,6 +20,9 @@ final class SampleHandler: RPBroadcastSampleHandler {
         // HUD 设置接力：App 发 Darwin 通知告诉扩展用户选的显示项、
         // 位置、字号（扩展自己读不到 App 的设置），越早订阅越好。
         HUDSettingsRelay.startObserving()
+        // 车辆数据接力：App 发 Darwin 通知告诉扩展车速/电压/电流/
+        // 功率（扩展自己连不上蓝牙），越早订阅越好。
+        VehicleDataRelay.startObserving()
     }
 
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
