@@ -136,7 +136,7 @@ private func nbAESECBEncrypt(key: Data, block: Data) -> Data? {
     var outLen: Int = 0
     let status = key.withUnsafeBytes { kPtr in
         block.withUnsafeBytes { bPtr in
-            CCCrypt(kCCEncrypt, kCCAlgorithmAES128, kCCOptionECBMode,
+            CCCrypt(CCOperation(kCCEncrypt), CCAlgorithm(kCCAlgorithmAES128), CCOptions(kCCOptionECBMode),
                     kPtr.baseAddress, key.count, nil,
                     bPtr.baseAddress, block.count,
                     &out, out.count, &outLen)
@@ -569,11 +569,11 @@ final class VehicleBLE: NSObject, ObservableObject {
 
     // MARK: - 最新读数（带锁；轮询循环和断开流程都会碰）
     private let valuesLock = NSLock()
-    private var _speedKmh: Double?
-    private var _voltageV: Double?
-    private var _currentA: Double?
-    private var _powerW: Double?
-    private var _batteryPct: Int?
+    private var lockedSpeedKmh: Double?
+    private var lockedVoltageV: Double?
+    private var lockedCurrentA: Double?
+    private var lockedPowerW: Double?
+    private var lockedBatteryPct: Int?
 
     private let log = Logger(subsystem: "com.corpsezhao.ninebotcast", category: "vehicleble")
 
@@ -673,24 +673,24 @@ final class VehicleBLE: NSObject, ObservableObject {
 
     private func clearValues() {
         valuesLock.lock(); defer { valuesLock.unlock() }
-        _speedKmh = nil
-        _voltageV = nil
-        _currentA = nil
-        _powerW = nil
-        _batteryPct = nil
+        lockedSpeedKmh = nil
+        lockedVoltageV = nil
+        lockedCurrentA = nil
+        lockedPowerW = nil
+        lockedBatteryPct = nil
     }
 
     /// 一轮读数结束统一发布：更新 @Published + 发给扩展的 Darwin 通知。
     private func setLatest(speed: Double?, voltage: Double?, current: Double?, battery: Int?) {
         valuesLock.lock()
-        if let speed { _speedKmh = speed }
-        if let voltage { _voltageV = voltage }
-        if let current { _currentA = current }
-        if let battery { _batteryPct = battery }
-        if let v = _voltageV, let c = _currentA {
-            _powerW = v * c
+        if let speed { lockedSpeedKmh = speed }
+        if let voltage { lockedVoltageV = voltage }
+        if let current { lockedCurrentA = current }
+        if let battery { lockedBatteryPct = battery }
+        if let v = lockedVoltageV, let c = lockedCurrentA {
+            lockedPowerW = v * c
         }
-        let snap = (_speedKmh, _voltageV, _currentA, _powerW, _batteryPct)
+        let snap = (lockedSpeedKmh, lockedVoltageV, lockedCurrentA, lockedPowerW, lockedBatteryPct)
         valuesLock.unlock()
         if let s = snap.0, let v = snap.1, let c = snap.2, let p = snap.3 {
             VehicleDataRelay.update(speedKmh: s, voltageV: v, currentA: c, powerW: p)
