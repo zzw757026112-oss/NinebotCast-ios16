@@ -757,6 +757,9 @@ struct MainView: View {
     // 项目主页：点开用 Safari 打开 GitHub 仓库
     private static let projectURL = URL(string: "https://github.com/zzw757026112-oss/NinebotPro-ios16")!
 
+    // 打赏：点开跳到支付宝收款链接
+    private static let donateURL = URL(string: "https://qr.alipay.com/2m614865zhw9pjqzkhlcjdc")!
+
     private var footer: some View {
         VStack(spacing: 6) {
             Link(destination: Self.projectURL) {
@@ -767,6 +770,14 @@ struct MainView: View {
                 }
                 .font(.caption.weight(.medium))
                 .foregroundColor(accent)
+            }
+            Link(destination: Self.donateURL) {
+                HStack(spacing: 4) {
+                    Image(systemName: "cup.and.saucer.fill")
+                    Text("本软件完全免费。制作不易，请我喝杯咖啡吧~")
+                }
+                .font(.caption.weight(.medium))
+                .foregroundColor(.orange)
             }
         }
         .padding(.top, 4)
