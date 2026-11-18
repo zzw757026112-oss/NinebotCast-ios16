@@ -240,12 +240,20 @@ final class HUDData: NSObject, CLLocationManagerDelegate, CXCallObserverDelegate
 enum HUDRenderer {
     // 848x480 参考坐标：仪表自己的画面占 (640,44)-(842,254)，
     // HUD 文字放右列、遮挡区下方；来电红条放左下角。
+    // 1.0.5：字改小（30→22）、行距收紧（42→32），整块文字罩一块
+    // 半透明磨砂板（黑底 40% + 白边 35%，圆角 10）。
     private static let refWidth: CGFloat = 848
     private static let refHeight: CGFloat = 480
     private static let rightXRef: CGFloat = 836
     private static let firstTopRef: CGFloat = 272
-    private static let lineStepRef: CGFloat = 42
-    private static let fontSizeRef: CGFloat = 30
+    private static let lineStepRef: CGFloat = 32
+    private static let fontSizeRef: CGFloat = 22
+    private static let panelAlpha: CGFloat = 0.40
+    private static let panelBorderAlpha: CGFloat = 0.35
+    private static let panelCornerRef: CGFloat = 10
+    private static let panelPadXRef: CGFloat = 12
+    private static let panelPadRightRef: CGFloat = 8
+    private static let panelPadYRef: CGFloat = 10
 
     private static let lock = NSLock()
     private static var cachedKey = ""
@@ -365,12 +373,11 @@ enum HUDRenderer {
         let fontSize = max(16, fontSizeRef * sy)
         let font = CTFontCreateWithName("Helvetica-Bold" as CFString, fontSize, nil)
         let white = CGColor(red: 1, green: 1, blue: 1, alpha: 1)
-        let shadow = CGColor(red: 0, green: 0, blue: 0, alpha: 0.85)
-        context.setShadow(offset: CGSize(width: 0, height: -2), blur: 3, color: shadow)
 
-        // 右列三行，右对齐，遮挡区下方开始往下排。
+        // 先量每行宽度（不画），才能给整块文字配一块磨砂底板。
         let rightX = rightXRef * sx
-        var top = firstTopRef * sy
+        var ctLines: [(line: CTLine, width: CGFloat, ascent: CGFloat, descent: CGFloat)] = []
+        var maxWidth: CGFloat = 0
         for line in lines {
             let attrs: [CFString: Any] = [
                 kCTFontAttributeName: font,
@@ -380,13 +387,48 @@ enum HUDRenderer {
                 kCFAllocatorDefault, line as CFString, attrs as CFDictionary) else { continue }
             let ctLine = CTLineCreateWithAttributedString(attrStr)
             var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
-            let lineWidth = CGFloat(CTLineGetTypographicBounds(ctLine, &ascent, &descent, &leading))
+            let w = CGFloat(CTLineGetTypographicBounds(ctLine, &ascent, &descent, &leading))
+            ctLines.append((ctLine, w, ascent, descent))
+            maxWidth = max(maxWidth, w)
+        }
+
+        // 磨砂面板：半透明黑底 + 细亮边，罩住整个右列文字（一块板，
+        // 不是每行一块）。平面半透明板，不是真高斯模糊——真模糊要逐帧
+        // 采样底图，扩展 50MB 预算扛不住；半透明板盖在视频上看过去
+        // 就是磨砂玻璃。板顶在遮挡区（底边 254）下方，不挡仪表画面。
+        if !ctLines.isEmpty {
+            let padX = panelPadXRef * sx
+            let padRight = panelPadRightRef * sx
+            let padY = panelPadYRef * sy
+            let stackTop = firstTopRef * sy
+            let stackBottom = stackTop
+                + CGFloat(ctLines.count - 1) * lineStepRef * sy + fontSize
+            let panel = CGRect(
+                x: rightX - maxWidth - padX,
+                y: h - stackBottom - padY,
+                width: maxWidth + padX + padRight,
+                height: (stackBottom - stackTop) + padY * 2)
+            context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: panelAlpha))
+            context.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: panelBorderAlpha))
+            context.setLineWidth(max(1, 1 * sx))
+            context.addPath(CGPath(roundedRect: panel,
+                                   cornerWidth: panelCornerRef * sx,
+                                   cornerHeight: panelCornerRef * sy,
+                                   transform: nil))
+            context.drawPath(using: .fillStroke)
+        }
+
+        // 右列三行，右对齐，遮挡区下方开始往下排。
+        let shadow = CGColor(red: 0, green: 0, blue: 0, alpha: 0.85)
+        context.setShadow(offset: CGSize(width: 0, height: -2), blur: 3, color: shadow)
+        var top = firstTopRef * sy
+        for (ctLine, lineWidth, ascent, _) in ctLines {
             context.textPosition = CGPoint(x: rightX - lineWidth, y: h - top - ascent)
             CTLineDraw(ctLine, context)
             top += lineStepRef * sy
         }
 
-        // 来电：左下角红色圆角条。
+        // 来电：左下角红色圆角条，半透明红底 + 细亮边，字随正文一起改小。
         if calling {
             let text = "来电"
             let attrs: [CFString: Any] = [
@@ -398,15 +440,17 @@ enum HUDRenderer {
                 let ctLine = CTLineCreateWithAttributedString(attrStr)
                 var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
                 let textWidth = CGFloat(CTLineGetTypographicBounds(ctLine, &ascent, &descent, &leading))
-                let padX = 16 * sx
-                let pillW = textWidth + 32 * sx
-                let pillH = 46 * sy
+                let padX = 12 * sx
+                let pillW = textWidth + 24 * sx
+                let pillH = 34 * sy
                 let pillRect = CGRect(x: 16 * sx, y: 16 * sy, width: pillW, height: pillH)
-                context.setFillColor(CGColor(red: 0.9, green: 0.1, blue: 0.1, alpha: 0.92))
+                context.setFillColor(CGColor(red: 0.9, green: 0.1, blue: 0.1, alpha: 0.55))
+                context.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: panelBorderAlpha))
+                context.setLineWidth(max(1, 1 * sx))
                 context.addPath(CGPath(roundedRect: pillRect,
-                                       cornerWidth: 10 * sy, cornerHeight: 10 * sy,
+                                       cornerWidth: 8 * sx, cornerHeight: 8 * sy,
                                        transform: nil))
-                context.fillPath()
+                context.drawPath(using: .fillStroke)
                 let baseline = pillRect.minY + (pillH - ascent - descent) / 2 + descent
                 context.textPosition = CGPoint(x: pillRect.minX + padX, y: baseline)
                 CTLineDraw(ctLine, context)

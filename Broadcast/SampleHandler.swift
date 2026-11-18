@@ -12,6 +12,13 @@ final class SampleHandler: RPBroadcastSampleHandler {
     private let log = Logger(subsystem: "com.corpsezhao.ninebotcast", category: "broadcast")
     private let caster = ScreenCaster()
 
+    override init() {
+        super.init()
+        // 方向接力：App 发 Darwin 通知告诉扩展现在手机是横是竖
+        //（扩展自己在 iOS 16 下测不到），越早订阅越好。
+        OrientationRelay.startObserving()
+    }
+
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
         log.info("mirror broadcast started")
         caster.start()

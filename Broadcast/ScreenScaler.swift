@@ -104,13 +104,20 @@ final class ScreenScaler {
 
     // MARK: - 转正（横屏内容存在竖帧里）
 
-    /// 帧是竖的但内容是横的，才需要转。方向按设备方向定：
-    /// landscapeLeft（手机逆时针横过来）内容逆时针歪，顺时针转正；
-    /// landscapeRight（手机顺时针横过来）内容顺时针歪，逆时针转正。
-    /// 设备方向读不到时（平放/未知），看屏幕本身是不是横的兜底，
-    /// 方向默认逆时针（按用户实测照片那次的情况）。
+    /// 帧是竖的但内容是横的，才需要转。方向来源按优先级：
+    /// 1) App 接力来的方向（Darwin 通知，iOS 16 下唯一可靠的来源）；
+    ///    App 说是竖屏就直接不转，App 没发过（.unknown）才往下走。
+    /// 2) 旧兜底：扩展自己测（iOS 17+ 上可能有效，16 上恒为竖屏）。
+    /// 方向映射不变：landscapeLeft（手机逆时针横过来）内容逆时针歪，
+    /// 顺时针转正；landscapeRight 内容顺时针歪，逆时针转正。
     private func rotationNeeded(srcWidth: Int, srcHeight: Int) -> MirrorRotation? {
         guard srcWidth < srcHeight else { return nil }
+        switch OrientationRelay.current {
+        case .landscapeLeft: return .rotateCW
+        case .landscapeRight: return .rotateCCW
+        case .portrait, .portraitUpsideDown: return nil
+        case .unknown: break
+        }
         switch UIDevice.current.orientation {
         case .landscapeLeft: return .rotateCW
         case .landscapeRight: return .rotateCCW
