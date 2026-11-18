@@ -311,10 +311,9 @@ final class HUDData: NSObject, CLLocationManagerDelegate, CXCallObserverDelegate
 enum HUDRenderer {
     // 848x480 参考坐标。胶囊锚在右下角：右边距 12、上边距…下边距 12。
     // 1.0.8：三行文字右列 → 右下角两行胶囊（照仪表右下角状态栏）。
+    // 1.0.9：胶囊可自定义——显示哪些项、放哪个角、字号（HUDSettingsRelay）。
     private static let refWidth: CGFloat = 848
     private static let refHeight: CGFloat = 480
-    private static let fontSizeRef: CGFloat = 20
-    private static let iconSizeRef: CGFloat = 20
     private static let iconTextGapRef: CGFloat = 4
     private static let groupGapRef: CGFloat = 14
     private static let rowGapRef: CGFloat = 8
@@ -322,6 +321,8 @@ enum HUDRenderer {
     private static let padYRef: CGFloat = 10
     private static let marginRightRef: CGFloat = 12
     private static let marginBottomRef: CGFloat = 12
+    private static let marginLeftRef: CGFloat = 12
+    private static let marginTopRef: CGFloat = 12
     private static let panelAlpha: CGFloat = 0.45
     private static let panelBorderAlpha: CGFloat = 0.35
     private static let panelCornerRef: CGFloat = 12
@@ -406,7 +407,9 @@ enum HUDRenderer {
 
     private static func layer(forWidth width: Int, height: Int) -> CGImage? {
         let snap = HUDData.shared.snapshot()
-        let key = "\(width)x\(height)|\(snap.date)|\(snap.weatherCode ?? -1)|\(snap.weatherTemp ?? -999)|\(snap.batteryLevel)|\(snap.charging ? 1 : 0)|\(snap.network.cacheKey)|\(snap.calling ? 1 : 0)"
+        let settings = HUDSettingsRelay.current
+        let settingsKey = "\(settings.showDate ? 1 : 0)\(settings.showWeather ? 1 : 0)\(settings.showSignal ? 1 : 0)\(settings.showBattery ? 1 : 0)|\(settings.position.rawValue)|\(settings.fontSize.rawValue)"
+        let key = "\(width)x\(height)|\(snap.date)|\(snap.weatherCode ?? -1)|\(snap.weatherTemp ?? -999)|\(snap.batteryLevel)|\(snap.charging ? 1 : 0)|\(snap.network.cacheKey)|\(snap.calling ? 1 : 0)|\(settingsKey)"
         lock.lock()
         defer { lock.unlock() }
         if key == cachedKey, let layer = cachedLayer { return layer }
@@ -414,7 +417,7 @@ enum HUDRenderer {
         if let layer = cachedLayer, Date().timeIntervalSince(lastRender) < 1.0 {
             return layer
         }
-        guard let layer = renderLayer(width: width, height: height, snap: snap) else {
+        guard let layer = renderLayer(width: width, height: height, snap: snap, settings: settings) else {
             return cachedLayer
         }
         cachedKey = key
@@ -454,8 +457,9 @@ enum HUDRenderer {
     /// 把两行胶囊 + 来电红条画进一张全尺寸透明层。
     /// CGContext 在这里是 y 朝上的坐标系（与 TestImageSource 相同），
     /// 所以「离顶 xx」要换算成 baseline = 高 - 顶距 - 上伸。
-    private static func renderLayer(width: Int, height: Int, snap: HUDSnapshot) -> CGImage? {
-        guard !snap.date.isEmpty || snap.calling else { return nil }
+    /// 设置全关、又没来电时返回一张全透明层（不是 nil），这样旧胶囊
+    /// 才会从画面上消失；layer() 的缓存也随之更新。
+    private static func renderLayer(width: Int, height: Int, snap: HUDSnapshot, settings: HUDSettings) -> CGImage? {
         guard let context = CGContext(
             data: nil, width: width, height: height,
             bitsPerComponent: 8, bytesPerRow: 0,
@@ -467,10 +471,11 @@ enum HUDRenderer {
         let sy = CGFloat(height) / refHeight
         let h = CGFloat(height)
 
-        let fontSize = max(16, fontSizeRef * sy)
+        // 字号跟设置走（小 16 / 中 20 / 大 24），图标跟着字一样大。
+        let fontSize = max(12, settings.fontSize.refPt * sy)
         let font = CTFontCreateWithName("Helvetica-Bold" as CFString, fontSize, nil)
         let white = CGColor(red: 1, green: 1, blue: 1, alpha: 1)
-        let iconSize = iconSizeRef * sy
+        let iconSize = fontSize
         let iconTextGap = iconTextGapRef * sx
         let groupGap = groupGapRef * sx
         let rowGap = rowGapRef * sy
@@ -481,25 +486,33 @@ enum HUDRenderer {
         let descent = CTFontGetDescent(font)
         let rowHeight = ascent + descent
 
-        // ---- 组两行 ----
+        // ---- 按设置组行（关掉的项不进胶囊） ----
         // 上行：时钟图标 + 日期时间
-        let row1: [Segment] = [.icon(.clock), .text(snap.date)]
+        var row1: [Segment] = []
+        if settings.showDate, !snap.date.isEmpty {
+            row1 = [.icon(.clock), .text(snap.date)]
+        }
         // 下行：天气图标 + 温度、联网方式、电池图标 + 百分比
         var row2: [Segment] = []
-        if let code = snap.weatherCode, let temp = snap.weatherTemp {
+        if settings.showWeather,
+           let code = snap.weatherCode, let temp = snap.weatherTemp {
             row2.append(.icon(.weather(code)))
             row2.append(.text("\(temp)°"))
         }
-        switch snap.network {
-        case .wifi:
-            row2.append(.icon(.wifi))
-        case .cellular(let tech):
-            row2.append(.text(tech))
-        case .none, .unknown:
-            break
+        if settings.showSignal {
+            switch snap.network {
+            case .wifi:
+                row2.append(.icon(.wifi))
+            case .cellular(let tech):
+                row2.append(.text(tech))
+            case .none, .unknown:
+                break
+            }
         }
-        row2.append(.battery(level: snap.batteryLevel, charging: snap.charging))
-        row2.append(.text(snap.batteryLevel < 0 ? "--%" : "\(Int(snap.batteryLevel * 100))%"))
+        if settings.showBattery {
+            row2.append(.battery(level: snap.batteryLevel, charging: snap.charging))
+            row2.append(.text(snap.batteryLevel < 0 ? "--%" : "\(Int(snap.batteryLevel * 100))%"))
+        }
 
         // ---- 量每段宽度 ----
         // 段间间距：图标后面跟文字是“一组”（小间距），其余都是组间距。
@@ -530,17 +543,38 @@ enum HUDRenderer {
             return (total, items)
         }
 
-        let m1 = measure(row1)
-        let m2 = measure(row2)
-        let contentWidth = max(m1.width, m2.width)
-        let pillW = contentWidth + padX * 2
-        let pillH = padY * 2 + rowHeight * 2 + rowGap
-        let pillRight = (refWidth - marginRightRef) * sx
-        let pillX = pillRight - pillW
-        // y 朝上：胶囊底边离底 marginBottom。
-        let pillY = marginBottomRef * sy
+        // 只画非空的行；行数决定胶囊高度（一行就矮一点）。
+        let measuredRows = [measure(row1), measure(row2)].filter { !$0.items.isEmpty }
+        // 全关了、又没来电：返回全透明层（旧胶囊随之消失）。
+        if measuredRows.isEmpty && !snap.calling {
+            return context.makeImage()
+        }
 
-        // ---- 画胶囊底板 ----
+        let contentWidth = measuredRows.map { $0.width }.max() ?? 0
+        let pillW = contentWidth + padX * 2
+        let rowCount = measuredRows.count
+        let pillH = padY * 2 + rowHeight * CGFloat(rowCount) + rowGap * CGFloat(max(0, rowCount - 1))
+
+        // 胶囊锚点按设置来（y 朝上坐标系）。
+        let pillX: CGFloat
+        let pillY: CGFloat
+        switch settings.position {
+        case .bottomRight:
+            pillX = (refWidth - marginRightRef) * sx - pillW
+            pillY = marginBottomRef * sy
+        case .bottomLeft:
+            pillX = marginLeftRef * sx
+            pillY = marginBottomRef * sy
+        case .topLeft:
+            pillX = marginLeftRef * sx
+            pillY = h - marginTopRef * sy - pillH
+        case .topRight:
+            pillX = (refWidth - marginRightRef) * sx - pillW
+            pillY = h - marginTopRef * sy - pillH
+        }
+
+        // ---- 画胶囊底板（有行才画；全关了只剩来电条时不画空胶囊） ----
+        if !measuredRows.isEmpty {
         let panel = CGRect(x: pillX, y: pillY, width: pillW, height: pillH)
         context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: panelAlpha))
         context.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: panelBorderAlpha))
@@ -551,7 +585,7 @@ enum HUDRenderer {
                                transform: nil))
         context.drawPath(using: .fillStroke)
 
-        // ---- 画两行（左对齐，图标与文字垂直居中对齐） ----
+        // ---- 画各行（左对齐，图标与文字垂直居中对齐） ----
         // 行顶（离顶距离）：胶囊顶 + padY 是第一行顶。
         let pillTopFromTop = h - (pillY + pillH)
         let shadow = CGColor(red: 0, green: 0, blue: 0, alpha: 0.85)
@@ -590,8 +624,12 @@ enum HUDRenderer {
             }
         }
 
-        drawRow(m1, rowTopFromTop: pillTopFromTop + padY)
-        drawRow(m2, rowTopFromTop: pillTopFromTop + padY + rowHeight + rowGap)
+        // 按顺序画非空的行
+        for (i, row) in measuredRows.enumerated() {
+            let rowTop = pillTopFromTop + padY + CGFloat(i) * (rowHeight + rowGap)
+            drawRow(row, rowTopFromTop: rowTop)
+        }
+        } // if !measuredRows.isEmpty
 
         // 来电：左下角红色圆角条，半透明红底 + 细亮边（不动）。
         if snap.calling {

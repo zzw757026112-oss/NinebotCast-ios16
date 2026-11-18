@@ -26,6 +26,13 @@ struct MainView: View {
     @AppStorage("nbc.dupKey") private var duplicateKeyframes = false
     @AppStorage("nbc.chunk1400") private var chunk1400 = true
     @AppStorage("nbc.mirrorRotation") private var mirrorRotationIndex = 0 // 0 自动 1 90° 2 180° 3 270°
+    // HUD 自定义：显示哪些项、放哪个角、字号多大（发给录屏扩展）
+    @AppStorage("nbc.hud.showDate") private var hudShowDate = true
+    @AppStorage("nbc.hud.showWeather") private var hudShowWeather = true
+    @AppStorage("nbc.hud.showSignal") private var hudShowSignal = true
+    @AppStorage("nbc.hud.showBattery") private var hudShowBattery = true
+    @AppStorage("nbc.hud.position") private var hudPosition = 0 // 0 右下 1 左下 2 左上 3 右上
+    @AppStorage("nbc.hud.fontSize") private var hudFontSize = 1 // 0 小 1 中 2 大
     @State private var gopIndex = 25            // 关键帧间隔（帧）
     @State private var fpsIndex = 20
     @State private var bitrateIndex = 1200      // kbps
@@ -72,6 +79,7 @@ struct MainView: View {
                     connectionCard
                     sourceCard
                     mirrorCard
+                    hudCard
                     metricsCard
                     diagCard
                     footer
@@ -88,6 +96,7 @@ struct MainView: View {
             localIP = LanScanner.localIPv4() ?? "未连 Wi-Fi"
             if host.isEmpty { host = LanScanner.gatewayGuess() ?? "" }
             applyQuality(qualityIndex)
+            postHUDSettings()
             diagText = Diag.tail(16)
             Diag.log("MainView 出现，版本 \(AppVersion.display)，IP=\(host.isEmpty ? "未填" : host)")
         }
@@ -530,10 +539,63 @@ struct MainView: View {
             Text("方向默认自动跟随手机；自动转不正时手动选 90° 或 270°，下一帧就生效，不用重开镜像。")
                 .font(.caption2)
                 .foregroundColor(.secondary)
-            Text("仪表右上角会叠加手机电量、日期和天气，来电时左下角显示红色“来电”。")
+            Text("仪表右下角会叠加一个小胶囊：日期时间和天气、信号、电量，来电时左下角显示红色“来电”。位置和显示项可以在下面 HUD 设置里改。")
                 .font(.caption2)
                 .foregroundColor(.secondary)
         }
+    }
+
+    // MARK: - HUD 显示（自定义：显示哪些项、放哪个角、字号）
+    private var hudSettings: HUDSettings {
+        let positions = HUDSettings.Position.allCases
+        let sizes = HUDSettings.FontSize.allCases
+        return HUDSettings(
+            showDate: hudShowDate,
+            showWeather: hudShowWeather,
+            showSignal: hudShowSignal,
+            showBattery: hudShowBattery,
+            position: positions[min(max(hudPosition, 0), positions.count - 1)],
+            fontSize: sizes[min(max(hudFontSize, 0), sizes.count - 1)])
+    }
+
+    /// 改了设置就立刻发给录屏扩展（Darwin 通知），之后每 2 秒还会重发。
+    private func postHUDSettings() {
+        HUDSettingsRelay.update(hudSettings)
+    }
+
+    private var hudCard: some View {
+        card("HUD 显示", icon: "rectangle.inset.bottomright") {
+            Toggle("日期时间", isOn: $hudShowDate)
+                .font(.subheadline)
+            Toggle("天气温度", isOn: $hudShowWeather)
+                .font(.subheadline)
+            Toggle("信号", isOn: $hudShowSignal)
+                .font(.subheadline)
+            Toggle("电量", isOn: $hudShowBattery)
+                .font(.subheadline)
+            Picker("位置", selection: $hudPosition) {
+                Text("右下").tag(0)
+                Text("左下").tag(1)
+                Text("左上").tag(2)
+                Text("右上").tag(3)
+            }
+            .pickerStyle(.segmented)
+            Picker("字号", selection: $hudFontSize) {
+                Text("小").tag(0)
+                Text("中").tag(1)
+                Text("大").tag(2)
+            }
+            .pickerStyle(.segmented)
+            Text("右上会挡住仪表自己的电量显示。改完先打开一次 App，再开镜像才生效；直接从控制中心开镜像、App 没跑过，就用默认（全显示、右下、中字）。")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
+        .onChange(of: hudShowDate) { _ in postHUDSettings() }
+        .onChange(of: hudShowWeather) { _ in postHUDSettings() }
+        .onChange(of: hudShowSignal) { _ in postHUDSettings() }
+        .onChange(of: hudShowBattery) { _ in postHUDSettings() }
+        .onChange(of: hudPosition) { _ in postHUDSettings() }
+        .onChange(of: hudFontSize) { _ in postHUDSettings() }
     }
 
     /// 镜像方向：和图片来源同一个样式。0=自动（走方向接力），

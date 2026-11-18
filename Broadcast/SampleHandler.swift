@@ -17,6 +17,9 @@ final class SampleHandler: RPBroadcastSampleHandler {
         // 方向接力：App 发 Darwin 通知告诉扩展现在手机是横是竖
         //（扩展自己在 iOS 16 下测不到），越早订阅越好。
         OrientationRelay.startObserving()
+        // HUD 设置接力：App 发 Darwin 通知告诉扩展用户选的显示项、
+        // 位置、字号（扩展自己读不到 App 的设置），越早订阅越好。
+        HUDSettingsRelay.startObserving()
     }
 
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
