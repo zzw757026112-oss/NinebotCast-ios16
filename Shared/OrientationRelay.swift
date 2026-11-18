@@ -23,6 +23,8 @@ import os.log
 /// （fit 竖条），绝不崩、绝不卡帧。
 enum OrientationRelay {
     static let prefix = "com.corpsezhao.ninebotcast.orientation"
+    /// 手动方向通知名：com.corpsezhao.ninebotcast.rotation.manual.<0|90|180|270>，
+    /// 0 = 自动（清除手动指定）。用户在镜像卡片里点的方向，靠它发给扩展。
 
     enum Orientation: String {
         case portrait
@@ -41,6 +43,26 @@ enum OrientationRelay {
         lock.lock()
         defer { lock.unlock() }
         return _current
+    }
+
+    private static let manualPrefix = "com.corpsezhao.ninebotcast.rotation.manual"
+    private static var _manualDegrees: Int = 0 // 0 = 自动，90/180/270 = 用户手动指定
+
+    /// 扩展读这个：用户手动选的镜像方向；0 表示自动（走下面的方向接力）。
+    static var manualDegrees: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return _manualDegrees
+    }
+
+    static func manualName(for degrees: Int) -> CFString {
+        "\(manualPrefix).\(degrees)" as CFString
+    }
+
+    static func manualDegrees(fromName name: CFString) -> Int? {
+        let s = name as String
+        guard s.hasPrefix(manualPrefix + ".") else { return nil }
+        return Int(s.dropFirst(manualPrefix.count + 1))
     }
 
     static func name(for orientation: Orientation) -> CFString {
@@ -72,6 +94,23 @@ enum OrientationRelay {
                 guard let name, let o = OrientationRelay.orientation(fromName: name.rawValue) else { return }
                 OrientationRelay.setCurrent(o)
             }, name(for: orientation), nil, .deliverImmediately)
+        }
+        // 手动方向：再订阅 4 个角度，用户一点就生效。
+        for degrees in [0, 90, 180, 270] {
+            CFNotificationCenterAddObserver(center, nil, { _, _, name, _, _ in
+                guard let name, let d = OrientationRelay.manualDegrees(fromName: name.rawValue) else { return }
+                OrientationRelay.setManualCurrent(d)
+            }, manualName(for: degrees), nil, .deliverImmediately)
+        }
+    }
+
+    private static func setManualCurrent(_ degrees: Int) {
+        lock.lock()
+        let changed = degrees != _manualDegrees
+        _manualDegrees = degrees
+        lock.unlock()
+        if changed {
+            log.info("手动方向接力：App 说镜像转 \(degrees)°（0=自动）")
         }
     }
 
@@ -106,11 +145,31 @@ enum OrientationRelay {
             OrientationRelay.postCurrent()
         }
         postCurrent()
+        postManualRotation()
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.main)
         timer.schedule(deadline: .now() + 2, repeating: .seconds(2))
-        timer.setEventHandler { OrientationRelay.postCurrent() }
+        timer.setEventHandler {
+            OrientationRelay.postCurrent()
+            OrientationRelay.postManualRotation()
+        }
         timer.resume()
         postTimer = timer
+    }
+
+    /// 主 App：用户在镜像卡片里手动选了方向（0=自动）。立即发一次，
+    /// 之后每 2 秒随方向一起重发，扩展晚启动也能在 2 秒内学会。
+    static func setManualRotation(_ degrees: Int) {
+        lock.lock()
+        _manualDegrees = degrees
+        lock.unlock()
+        postManualRotation()
+        log.info("手动方向：\(degrees)°（0=自动）")
+    }
+
+    private static func postManualRotation() {
+        CFNotificationCenterPostNotification(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            CFNotificationName(rawValue: manualName(for: manualDegrees)), nil, nil, true)
     }
 
     private static func postCurrent() {

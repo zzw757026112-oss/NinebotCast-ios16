@@ -25,6 +25,7 @@ struct MainView: View {
     @AppStorage("nbc.quality") private var qualityIndex = 2   // 0 流畅 1 均衡 2 清晰 3 极致
     @AppStorage("nbc.dupKey") private var duplicateKeyframes = false
     @AppStorage("nbc.chunk1400") private var chunk1400 = true
+    @AppStorage("nbc.mirrorRotation") private var mirrorRotationIndex = 0 // 0 自动 1 90° 2 180° 3 270°
     @State private var gopIndex = 25            // 关键帧间隔（帧）
     @State private var fpsIndex = 20
     @State private var bitrateIndex = 1200      // kbps
@@ -525,9 +526,46 @@ struct MainView: View {
             Text("开始前：仪表先进投屏接收态，强退九号出行（它占着 5012/5013 端口），并先停掉上面的普通投屏；先用测试图成功投一次，让系统弹过局域网权限。手机横过来后画面自动转正、铺满整个仪表（左右各裁掉一点）；竖屏画面在横屏仪表上是中间一条竖条，两边黑边。只支持五寸 H.264 模式。")
                 .font(.caption2)
                 .foregroundColor(.secondary)
+            mirrorRotationPicker
+            Text("方向默认自动跟随手机；自动转不正时手动选 90° 或 270°，下一帧就生效，不用重开镜像。")
+                .font(.caption2)
+                .foregroundColor(.secondary)
             Text("仪表右上角会叠加手机电量、日期和天气，来电时左下角显示红色“来电”。")
                 .font(.caption2)
                 .foregroundColor(.secondary)
+        }
+    }
+
+    /// 镜像方向：和图片来源同一个样式。0=自动（走方向接力），
+    /// 90°/180°/270° 手动指定；点的那一下立即发给扩展，下一帧就转。
+    private var mirrorRotationPicker: some View {
+        HStack(spacing: 8) {
+            Text("方向")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            Spacer()
+            HStack(spacing: 2) {
+                ForEach(0..<4, id: \.self) { i in
+                    Button {
+                        mirrorRotationIndex = i
+                        OrientationRelay.setManualRotation([0, 90, 180, 270][i])
+                    } label: {
+                        Text(["自动", "90°", "180°", "270°"][i])
+                            .font(.caption.weight(.medium))
+                            .monospacedDigit()
+                            .frame(width: 46, height: 28)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(mirrorRotationIndex == i ? accent : Color.clear)
+                            )
+                            .foregroundColor(mirrorRotationIndex == i ? .white : .secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(3)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.primary.opacity(0.045)))
         }
     }
 
