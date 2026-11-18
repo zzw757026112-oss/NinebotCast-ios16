@@ -69,7 +69,7 @@ enum OrientationRelay {
         for orientation in [Orientation.portrait, .portraitUpsideDown,
                             .landscapeLeft, .landscapeRight, .unknown] {
             CFNotificationCenterAddObserver(center, nil, { _, _, name, _, _ in
-                guard let name, let o = OrientationRelay.orientation(fromName: name) else { return }
+                guard let name, let o = OrientationRelay.orientation(fromName: name.rawValue) else { return }
                 OrientationRelay.setCurrent(o)
             }, name(for: orientation), nil, .deliverImmediately)
         }
@@ -124,6 +124,6 @@ enum OrientationRelay {
         }
         CFNotificationCenterPostNotification(
             CFNotificationCenterGetDarwinNotifyCenter(),
-            name(for: orientation), nil, nil, true)
+            CFNotificationName(rawValue: name(for: orientation)), nil, nil, true)
     }
 }
