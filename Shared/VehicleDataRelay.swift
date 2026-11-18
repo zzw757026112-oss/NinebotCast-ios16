@@ -155,7 +155,7 @@ enum VehicleDataRelay {
                     guard let cfName else { return }
                     VehicleDataRelay.handle(name: cfName.rawValue as String)
                 },
-                cfName, nil, .deliverImmediately)
+                cfName.rawValue, nil, .deliverImmediately)
         }
     }
 
