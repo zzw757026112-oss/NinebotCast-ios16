@@ -647,6 +647,14 @@ struct MainView: View {
                 }
                 .font(.caption)
                 .foregroundColor(.secondary)
+                Text("阶段：\(antbms.stage)　已发 \(antbms.pollCount) 次　收到 \(antbms.rxBytes) 字节\(antbms.notifyOn ? "　通知已开" : "")")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                if let info = antbms.lastFrameInfo {
+                    Text(info)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
                 if let s = antbms.snapshot {
                     Text(String(format: "总电压 %.2fV　电流 %.1fA　功率 %.0fW　SOC %.0f%%",
                                 s.voltage, s.current, s.power, s.soc))

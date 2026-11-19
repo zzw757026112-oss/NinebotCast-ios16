@@ -45,6 +45,14 @@ final class ANTBMS: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeri
     @Published private(set) var isConnected = false
     @Published private(set) var isScanning = false
     @Published private(set) var lastError: String?
+    // 诊断（1.2.1：1.2.0 实测只显示“已连接”，没数据也不报错，
+    // 不知道卡在哪一步——这些字段让卡片直接说出来）。
+    @Published private(set) var stage = "未启用"
+    @Published private(set) var pollCount = 0
+    @Published private(set) var rxBytes = 0
+    @Published private(set) var notifyOn = false
+    @Published private(set) var lastFrameInfo: String?
+    @Published private(set) var lastRxAt: Date?
 
     private static let serviceUUID = CBUUID(string: "FFE0")
     private static let cmdUUID = CBUUID(string: "FFE1")
@@ -58,6 +66,8 @@ final class ANTBMS: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeri
     private var scanTimer: Timer?
     private var pollTimer: Timer?
     private var reconnectTimer: Timer?
+    private var notifyFallbackTimer: Timer?
+    private var writeProbeDone = false
     private var rxBuffer = Data()
 
     private override init() {
@@ -69,6 +79,13 @@ final class ANTBMS: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeri
 
     private func start() {
         rxBuffer.removeAll()
+        pollCount = 0
+        rxBytes = 0
+        notifyOn = false
+        lastFrameInfo = nil
+        lastRxAt = nil
+        writeProbeDone = false
+        stage = central.state == .poweredOn ? "搜索中" : "等蓝牙开启"
         if central.state == .poweredOn {
             startScan()
         }
@@ -79,6 +96,7 @@ final class ANTBMS: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeri
         scanTimer?.invalidate(); scanTimer = nil
         pollTimer?.invalidate(); pollTimer = nil
         reconnectTimer?.invalidate(); reconnectTimer = nil
+        notifyFallbackTimer?.invalidate(); notifyFallbackTimer = nil
         if let p = peripheral {
             central.cancelPeripheralConnection(p)
         }
@@ -90,6 +108,13 @@ final class ANTBMS: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeri
         rssi = nil
         snapshot = nil
         lastError = nil
+        stage = "未启用"
+        pollCount = 0
+        rxBytes = 0
+        notifyOn = false
+        lastFrameInfo = nil
+        lastRxAt = nil
+        writeProbeDone = false
         ANTBMSRelay.clear()
     }
 
@@ -99,6 +124,7 @@ final class ANTBMS: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeri
         guard isEnabled, central.state == .poweredOn else { return }
         candidates.removeAll()
         isScanning = true
+        stage = "搜索中"
         central.scanForPeripherals(withServices: [Self.serviceUUID], options: nil)
         scanTimer?.invalidate()
         scanTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { [weak self] _ in
@@ -118,6 +144,7 @@ final class ANTBMS: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeri
         peripheral = best.peripheral
         deviceName = best.peripheral.name ?? "ANT BMS"
         rssi = best.rssi
+        stage = "连接中"
         central.connect(best.peripheral, options: nil)
     }
 
@@ -144,19 +171,25 @@ final class ANTBMS: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeri
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         isConnected = true
         lastError = nil
+        writeProbeDone = false
+        stage = "发现服务"
         peripheral.delegate = self
         peripheral.discoverServices([Self.serviceUUID])
     }
 
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
         lastError = "连接失败：\(error?.localizedDescription ?? "?")"
+        stage = "连接失败，重连中"
         scheduleReconnect()
     }
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         isConnected = false
         cmdChar = nil
+        notifyOn = false
         pollTimer?.invalidate(); pollTimer = nil
+        notifyFallbackTimer?.invalidate(); notifyFallbackTimer = nil
+        stage = "已断开，重连中"
         scheduleReconnect()
     }
 
@@ -179,6 +212,7 @@ final class ANTBMS: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeri
             return
         }
         peripheral.discoverCharacteristics([Self.cmdUUID], for: service)
+        stage = "发现特征"
     }
 
     func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
@@ -190,7 +224,20 @@ final class ANTBMS: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeri
             return
         }
         cmdChar = ch
+        stage = "订阅中"
         peripheral.setNotifyValue(true, for: ch)
+        // 正常 1 秒内回调 didUpdateNotificationStateFor；3 秒没回调
+        // 也先开始轮询（有的栈不回调），避免卡死在订阅这一步。
+        notifyFallbackTimer?.invalidate()
+        notifyFallbackTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { [weak self] _ in
+            self?.startPollingIfNeeded()
+        }
+    }
+
+    /// 订阅确认后（或 3 秒超时后）开始轮询。
+    private func startPollingIfNeeded() {
+        guard isEnabled, isConnected, cmdChar != nil, pollTimer == nil else { return }
+        stage = "轮询中"
         sendPoll()
         pollTimer?.invalidate()
         pollTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
@@ -198,13 +245,45 @@ final class ANTBMS: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeri
         }
     }
 
+    func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
+        notifyFallbackTimer?.invalidate(); notifyFallbackTimer = nil
+        if let error {
+            lastError = "订阅通知失败：\(error.localizedDescription)"
+            stage = "订阅失败"
+            return
+        }
+        notifyOn = characteristic.isNotifying
+        if characteristic.isNotifying {
+            startPollingIfNeeded()
+        } else {
+            lastError = "通知未开启"
+            stage = "订阅失败"
+        }
+    }
+
     private func sendPoll() {
         guard let p = peripheral, let ch = cmdChar, isConnected else { return }
+        pollCount += 1
         p.writeValue(Self.pollCommand, for: ch, type: .withoutResponse)
+        // 3 次轮询都没回包：补一次带回应写入，看写入本身通不通。
+        if pollCount == 3, rxBytes == 0, !writeProbeDone {
+            writeProbeDone = true
+            p.writeValue(Self.pollCommand, for: ch, type: .withResponse)
+        }
+    }
+
+    func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
+        if let error {
+            lastError = "写入失败：\(error.localizedDescription)"
+        } else if rxBytes == 0 {
+            lastFrameInfo = "写入已确认，仍在等 BMS 回包"
+        }
     }
 
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         guard error == nil, let data = characteristic.value, !data.isEmpty else { return }
+        rxBytes += data.count
+        lastRxAt = Date()
         rxBuffer.append(data)
         drainBuffer()
     }
@@ -232,8 +311,12 @@ final class ANTBMS: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeri
             guard rxBuffer.count >= total else { return }
             let frame = rxBuffer.prefix(total)
             rxBuffer.removeFirst(total)
-            guard frame.suffix(4).elementsEqual(Data([0xF3, 0x00, 0xAA, 0x55])) else { continue }
+            guard frame.suffix(4).elementsEqual(Data([0xF3, 0x00, 0xAA, 0x55])) else {
+                lastFrameInfo = "收到 \(total)B，尾校验失败"
+                continue
+            }
             if let parsed = Self.parseFrame(Data(frame)) {
+                lastFrameInfo = "收到 \(total)B，解析成功"
                 snapshot = parsed
                 ANTBMSRelay.update(ANTBMSRelay.Values(
                     voltage: parsed.voltage,
@@ -241,6 +324,8 @@ final class ANTBMS: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeri
                     soc: parsed.soc,
                     maxTemp: parsed.temps.max() ?? 0,
                     delta: parsed.cellDelta))
+            } else {
+                lastFrameInfo = "收到 \(total)B，解析失败"
             }
             // 解析失败就丢弃不更新，继续等下一帧。
         }
