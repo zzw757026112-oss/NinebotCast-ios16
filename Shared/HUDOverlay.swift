@@ -213,13 +213,17 @@ final class HUDData: NSObject, CLLocationManagerDelegate, CXCallObserverDelegate
             // 1.1.0 实测音量卡在 5% 不动）：优先用主 App 中继来的新鲜值；
             // 中继过期或没值时回落到本地读数（和现在一样，不崩）。
             // App 没跑过时中继就没有，扩展就跟以前一样。
+            // 1.1.7：中继改逐名订阅（NULL 名观察者在扩展里静默失效，
+            // 是 1.1.1–1.1.6 音乐/音量镜像不实时的根因）。
+            // 歌名传不过来（Darwin 通知名字空间有限），中继只传
+            // “在放 / 没放”：在放就显示音符 + “正在播放”。
             if let relayed = HUDDataRelay.current {
-                music = relayed.music
+                music = relayed.musicPlaying ? "正在播放" : nil
                 if relayed.volume >= 0 { volume = relayed.volume }
             }
         } else {
             // App 进程：本地读数是真的，读完发给扩展画镜像 HUD。
-            HUDDataRelay.update(music: music, volume: volume)
+            HUDDataRelay.update(musicPlaying: music != nil, volume: volume)
         }
         lock.lock()
         _batteryLevel = level
@@ -447,11 +451,8 @@ enum HUDRenderer {
     private static func layer(forWidth width: Int, height: Int) -> CGImage? {
         let snap = HUDData.shared.snapshot()
         let settings = HUDSettingsRelay.current
-        let settingsKey = "\(settings.showDate ? 1 : 0)\(settings.showWeather ? 1 : 0)\(settings.showSignal ? 1 : 0)\(settings.showBattery ? 1 : 0)\(settings.showMusic ? 1 : 0)\(settings.showVolume ? 1 : 0)\(settings.showVehicle ? 1 : 0)|\(settings.position.rawValue)|\(settings.fontSize.rawValue)"
-        // 车辆数据：新鲜才有（过期/没连车时为 nil，缓存键随之变，旧胶囊消失）。
-        let vehicle = settings.showVehicle ? VehicleDataRelay.current : nil
-        let vehicleKey = vehicle.map { "\($0.speedKmh)/\($0.voltageV)/\($0.currentA)/\($0.powerW)" } ?? "-"
-        let key = "\(width)x\(height)|\(snap.date)|\(snap.weatherCode ?? -1)|\(snap.weatherTemp ?? -999)|\(snap.batteryLevel)|\(snap.charging ? 1 : 0)|\(snap.network.cacheKey)|\(snap.calling ? 1 : 0)|\(snap.music ?? "")|\(snap.volume)|\(settingsKey)|\(vehicleKey)"
+        let settingsKey = "\(settings.showDate ? 1 : 0)\(settings.showWeather ? 1 : 0)\(settings.showSignal ? 1 : 0)\(settings.showBattery ? 1 : 0)\(settings.showMusic ? 1 : 0)\(settings.showVolume ? 1 : 0)|\(settings.position.rawValue)|\(settings.fontSize.rawValue)"
+        let key = "\(width)x\(height)|\(snap.date)|\(snap.weatherCode ?? -1)|\(snap.weatherTemp ?? -999)|\(snap.batteryLevel)|\(snap.charging ? 1 : 0)|\(snap.network.cacheKey)|\(snap.calling ? 1 : 0)|\(snap.music ?? "")|\(snap.volume)|\(settingsKey)"
         lock.lock()
         defer { lock.unlock() }
         if key == cachedKey, let layer = cachedLayer { return layer }
@@ -459,7 +460,7 @@ enum HUDRenderer {
         if let layer = cachedLayer, Date().timeIntervalSince(lastRender) < 1.0 {
             return layer
         }
-        guard let layer = renderLayer(width: width, height: height, snap: snap, settings: settings, vehicle: vehicle) else {
+        guard let layer = renderLayer(width: width, height: height, snap: snap, settings: settings) else {
             return cachedLayer
         }
         cachedKey = key
@@ -482,7 +483,6 @@ enum HUDRenderer {
         case wifi
         case music // 音符
         case speaker // 喇叭（音量）
-        case bolt // 闪电（车辆电压/功率行）
     }
 
     private static func ctLine(_ text: String, font: CTFont, color: CGColor) -> CTLine {
@@ -499,13 +499,12 @@ enum HUDRenderer {
         return CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
     }
 
-    /// 把两行胶囊 + 来电红条 + 车辆胶囊画进一张全尺寸透明层。
+    /// 把两行胶囊 + 来电红条画进一张全尺寸透明层。
     /// CGContext 在这里是 y 朝上的坐标系（与 TestImageSource 相同），
     /// 所以「离顶 xx」要换算成 baseline = 高 - 顶距 - 上伸。
-    /// 设置全关、又没来电、又没车数据时返回一张全透明层（不是 nil），
+    /// 设置全关、又没来电时返回一张全透明层（不是 nil），
     /// 这样旧胶囊才会从画面上消失；layer() 的缓存也随之更新。
-    /// vehicle 是中继里的最新车辆数据（nil = 没连车或已过期）。
-    private static func renderLayer(width: Int, height: Int, snap: HUDSnapshot, settings: HUDSettings, vehicle: (speedKmh: Int, voltageV: Int, currentA: Int, powerW: Int)?) -> CGImage? {
+    private static func renderLayer(width: Int, height: Int, snap: HUDSnapshot, settings: HUDSettings) -> CGImage? {
         guard let context = CGContext(
             data: nil, width: width, height: height,
             bitsPerComponent: 8, bytesPerRow: 0,
@@ -604,8 +603,8 @@ enum HUDRenderer {
 
         // 只画非空的行；行数决定胶囊高度（一行就矮一点）。
         let measuredRows = [measure(row1), measure(row2), measure(row3)].filter { !$0.items.isEmpty }
-        // 全关了、又没来电、又没车数据：返回全透明层（旧胶囊随之消失）。
-        if measuredRows.isEmpty && !snap.calling && vehicle == nil {
+        // 全关了、又没来电：返回全透明层（旧胶囊随之消失）。
+        if measuredRows.isEmpty && !snap.calling {
             return context.makeImage()
         }
 
@@ -711,72 +710,6 @@ enum HUDRenderer {
             CTLineDraw(line, context)
         }
 
-        // 车辆胶囊（独立胶囊，不塞进手机状态胶囊）：
-        // 第一行大速度 + km/h（同基线），第二行闪电图标 + 电压 + 功率。
-        // 没车数据时不画（不留空胶囊）。默认左上；手机胶囊在左上时
-        // 改放右下（右上是仪表自己的显示区，左下是来电条，都不能放）。
-        // 功率是中继传来的大小（10W 一档），回充的负号传不过来——
-        // App 内的车辆卡片显示带符号的完整值。
-        if let vehicle {
-            let bigFontSize = fontSize * 1.8
-            let bigFont = CTFontCreateWithName("Helvetica-Bold" as CFString, bigFontSize, nil)
-            let bigAscent = CTFontGetAscent(bigFont)
-            let bigDescent = CTFontGetDescent(bigFont)
-            let bigRowHeight = bigAscent + bigDescent
-            let speedLine = ctLine("\(vehicle.speedKmh)", font: bigFont, color: white)
-            let unitLine = ctLine("km/h", font: font, color: white)
-            let voltLine = ctLine("\(vehicle.voltageV)V", font: font, color: white)
-            let powerLine = ctLine("\(vehicle.powerW)W", font: font, color: white)
-            let row1W = lineWidth(speedLine) + iconTextGap + lineWidth(unitLine)
-            let row2W = iconSize + iconTextGap + lineWidth(voltLine) + groupGap + lineWidth(powerLine)
-            let vPillW = max(row1W, row2W) + padX * 2
-            let vPillH = padY * 2 + bigRowHeight + rowGap + rowHeight
-            let vPillX: CGFloat
-            let vPillY: CGFloat
-            if settings.position == .topLeft {
-                vPillX = (refWidth - marginRightRef) * sx - vPillW
-                vPillY = marginBottomRef * sy
-            } else {
-                vPillX = marginLeftRef * sx
-                vPillY = h - marginTopRef * sy - vPillH
-            }
-            // 底板（跟手机胶囊同款：黑 45% + 白 35% 边，圆角 12）
-            let vPanel = CGRect(x: vPillX, y: vPillY, width: vPillW, height: vPillH)
-            context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: panelAlpha))
-            context.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: panelBorderAlpha))
-            context.setLineWidth(max(1, 1 * sx))
-            context.addPath(CGPath(roundedRect: vPanel,
-                                   cornerWidth: panelCornerRef * sx,
-                                   cornerHeight: panelCornerRef * sy,
-                                   transform: nil))
-            context.drawPath(using: .fillStroke)
-            let vShadow = CGColor(red: 0, green: 0, blue: 0, alpha: 0.85)
-            context.setShadow(offset: CGSize(width: 0, height: -2), blur: 3, color: vShadow)
-            // 第一行：大速度 + km/h（同基线，左对齐）
-            let vTopFromTop = h - (vPillY + vPillH)
-            let row1Baseline = h - (vTopFromTop + padY) - bigAscent
-            var vx = vPillX + padX
-            context.textPosition = CGPoint(x: vx, y: row1Baseline)
-            CTLineDraw(speedLine, context)
-            vx += lineWidth(speedLine) + iconTextGap
-            context.textPosition = CGPoint(x: vx, y: row1Baseline)
-            CTLineDraw(unitLine, context)
-            // 第二行：闪电图标 + 电压 + 功率
-            let row2Top = vTopFromTop + padY + bigRowHeight + rowGap
-            let row2Baseline = h - row2Top - ascent
-            let textCenterY2 = row2Baseline + (ascent - descent) / 2
-            var vx2 = vPillX + padX
-            let boltRect = CGRect(x: vx2, y: textCenterY2 - iconSize / 2,
-                                  width: iconSize, height: iconSize)
-            drawIcon(.bolt, in: boltRect, context: context)
-            vx2 += iconSize + iconTextGap
-            context.textPosition = CGPoint(x: vx2, y: row2Baseline)
-            CTLineDraw(voltLine, context)
-            vx2 += lineWidth(voltLine) + groupGap
-            context.textPosition = CGPoint(x: vx2, y: row2Baseline)
-            CTLineDraw(powerLine, context)
-        }
-
         return context.makeImage()
     }
 
@@ -858,8 +791,6 @@ enum HUDRenderer {
             context.addArc(center: c, radius: rect.width * 0.24,
                            startAngle: -.pi / 3, endAngle: .pi / 3, clockwise: false)
             context.strokePath()
-        case .bolt:
-            drawBolt(in: rect, context: context)
         }
     }
 

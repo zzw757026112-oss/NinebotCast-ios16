@@ -17,7 +17,6 @@ enum AppVersion {
 
 struct MainView: View {
     @StateObject private var engine = CastEngine()
-    @StateObject private var vehicleBLE = VehicleBLE()
     @Environment(\.colorScheme) private var scheme
 
     // 授权门（App 持有）：授权卡片显示状态、更换授权码用。
@@ -38,7 +37,6 @@ struct MainView: View {
     @AppStorage("nbc.hud.showBattery") private var hudShowBattery = true
     @AppStorage("nbc.hud.showMusic") private var hudShowMusic = true
     @AppStorage("nbc.hud.showVolume") private var hudShowVolume = true
-    @AppStorage("nbc.hud.showVehicle") private var hudShowVehicle = true
     @AppStorage("nbc.hud.position") private var hudPosition = 0 // 0 右下 1 左下 2 左上 3 右上
     @AppStorage("nbc.hud.fontSize") private var hudFontSize = 1 // 0 小 1 中 2 大
     @State private var gopIndex = 25            // 关键帧间隔（帧）
@@ -87,7 +85,6 @@ struct MainView: View {
                     connectionCard
                     sourceCard
                     mirrorCard
-                    vehicleCard
                     hudCard
                     licenseCard
                     metricsCard
@@ -578,7 +575,6 @@ struct MainView: View {
             showBattery: hudShowBattery,
             showMusic: hudShowMusic,
             showVolume: hudShowVolume,
-            showVehicle: hudShowVehicle,
             position: positions[min(max(hudPosition, 0), positions.count - 1)],
             fontSize: sizes[min(max(hudFontSize, 0), sizes.count - 1)])
     }
@@ -601,8 +597,6 @@ struct MainView: View {
             Toggle("音乐", isOn: $hudShowMusic)
                 .font(.subheadline)
             Toggle("音量", isOn: $hudShowVolume)
-                .font(.subheadline)
-            Toggle("车辆", isOn: $hudShowVehicle)
                 .font(.subheadline)
             Picker("位置", selection: $hudPosition) {
                 Text("右下").tag(0)
@@ -627,7 +621,6 @@ struct MainView: View {
         .onChange(of: hudShowBattery) { _ in postHUDSettings() }
         .onChange(of: hudShowMusic) { _ in postHUDSettings() }
         .onChange(of: hudShowVolume) { _ in postHUDSettings() }
-        .onChange(of: hudShowVehicle) { _ in postHUDSettings() }
         .onChange(of: hudPosition) { _ in postHUDSettings() }
         .onChange(of: hudFontSize) { _ in postHUDSettings() }
     }
@@ -659,57 +652,6 @@ struct MainView: View {
                 .buttonStyle(.plain)
             }
             Text("授权码由作者提供；换码后重新开一次镜像就生效。")
-                .font(.caption2)
-                .foregroundColor(.secondary)
-        }
-    }
-
-    /// 车辆蓝牙：直连滑板车（Max G2 / F2 系，Enc2），读速度/电压/电流/
-    /// 电量，仪表 HUD 上单独一个胶囊显示速度。注意：同一时间只能
-    /// 一个 App 连车——连之前先把九号出行彻底退出。首次配对可能要
-    /// 按一下车上的电源键；配对会覆盖官方 App 的密码，之后官方 App
-    /// 要重新配对才能连车。
-    private var vehicleCard: some View {
-        card("车辆蓝牙", icon: "bolt.car") {
-            HStack(spacing: 6) {
-                Image(systemName: vehicleBLE.isAuthenticated ? "checkmark.circle.fill"
-                    : (vehicleBLE.isConnected ? "clock" : "bluetooth"))
-                    .font(.system(size: 12))
-                Text(vehicleBLE.status)
-                    .font(.caption)
-                Spacer()
-                Button(vehicleBLE.isConnected ? "断开" : "连接") {
-                    if vehicleBLE.isConnected {
-                        vehicleBLE.disconnect()
-                    } else {
-                        vehicleBLE.connect()
-                    }
-                }
-                .font(.caption.weight(.semibold))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(vehicleBLE.isConnected ? Color.red.opacity(0.12) : accent))
-                .foregroundColor(vehicleBLE.isConnected ? .red : .white)
-                .buttonStyle(.plain)
-            }
-            if vehicleBLE.isAuthenticated {
-                HStack(spacing: 0) {
-                    metric(vehicleBLE.speedKmh.map { String(format: "%.1f", $0) } ?? "—", "速度 km/h")
-                    divider
-                    metric(vehicleBLE.voltageV.map { String(format: "%.1f", $0) } ?? "—", "电压 V")
-                    divider
-                    metric(vehicleBLE.powerW.map { String(format: "%.0f", $0) } ?? "—", "功率 W")
-                    divider
-                    metric(vehicleBLE.batteryPct.map { "\($0)" } ?? "—", "电量 %")
-                }
-                if let current = vehicleBLE.currentA {
-                    Text("电流 \(String(format: "%.2f", current)) A（负值是在回充）")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-            }
-            Text("连之前先把九号出行彻底退出（一个蓝牙连接只能被一个 App 占着）。首次配对可能要按一下车上的电源键；配对会覆盖官方 App 的密码，之后官方 App 要重新配对。")
                 .font(.caption2)
                 .foregroundColor(.secondary)
         }

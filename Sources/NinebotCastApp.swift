@@ -16,9 +16,6 @@ struct NinebotProPlusApp: App {
         // HUD 设置接力：同上，把用户在 HUD 设置卡片里选的显示项、
         // 位置、字号发给录屏扩展（扩展自己读不到 App 的设置）。
         HUDSettingsRelay.startPosting()
-        // 车辆数据接力：同上，把蓝牙读到的车速/电压/电流/功率发给
-        // 录屏扩展画车辆胶囊。没连车时不发（扩展端没数据就不画）。
-        VehicleDataRelay.startPosting()
         // 音乐 + 音量接力：同上，把主 App 读到的正在播放的歌和手机
         // 音量发给录屏扩展（扩展进程里 MPNowPlayingInfoCenter 读不
         // 到音乐、outputVolume 是陈旧值，镜像时音乐行不显示、音量
