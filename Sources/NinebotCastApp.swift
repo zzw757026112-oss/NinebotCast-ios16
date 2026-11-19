@@ -1,7 +1,10 @@
 import SwiftUI
+import UIKit
 
 @main
 struct NinebotProPlusApp: App {
+    @StateObject private var licenseGate = LicenseGate()
+
     init() {
         // 第一件事就写启动日志 + 挂异常处理器：
         // 万一这一版还是闪，下次打开 App 能在「诊断」里看到上次停在哪一步。
@@ -30,7 +33,17 @@ struct NinebotProPlusApp: App {
     }
     var body: some Scene {
         WindowGroup {
-            MainView()
+            Group {
+                if licenseGate.isActivated {
+                    MainView()
+                } else {
+                    LicenseView(gate: licenseGate)
+                }
+            }
+            .onAppear { licenseGate.refresh() }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+                licenseGate.refresh()
+            }
         }
     }
 }

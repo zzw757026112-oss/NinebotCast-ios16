@@ -29,6 +29,14 @@ final class SampleHandler: RPBroadcastSampleHandler {
     }
 
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
+        // 镜像也要授权：没激活就不推流（钥匙串 App 与扩展共享，App 里激活一次即可）
+        guard LicenseManager.currentStatus().isValid else {
+            log.info("mirror 未激活，拒绝推流")
+            let error = NSError(domain: "com.corpsezhao.ninebotcast.license", code: 1,
+                                userInfo: [NSLocalizedDescriptionKey: "Ninebot Pro+ 未激活，请先在 App 内输入授权码"])
+            finishBroadcastWithError(error)
+            return
+        }
         log.info("mirror broadcast started")
         caster.start()
     }
