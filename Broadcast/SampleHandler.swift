@@ -23,6 +23,9 @@ final class SampleHandler: RPBroadcastSampleHandler {
         // 车辆数据接力：App 发 Darwin 通知告诉扩展车速/电压/电流/
         // 功率（扩展自己连不上蓝牙），越早订阅越好。
         VehicleDataRelay.startObserving()
+        // 音乐 + 音量接力：App 发 Darwin 通知告诉扩展正在放的歌和
+        // 手机音量（扩展自己读不到），越早订阅越好。
+        HUDDataRelay.startObserving()
     }
 
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {

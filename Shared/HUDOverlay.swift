@@ -206,7 +206,21 @@ final class HUDData: NSObject, CLLocationManagerDelegate, CXCallObserverDelegate
             if let m = music, m.count > 24 { music = String(m.prefix(24)) + "…" }
         }
         // 手机音量（0...1）。
-        let volume = AVAudioSession.sharedInstance().outputVolume
+        var volume = AVAudioSession.sharedInstance().outputVolume
+        if isExtension {
+            // 扩展进程读不到真实音乐（MPNowPlayingInfoCenter 返回 nil，
+            // 音乐行永不出现）和真实音量（outputVolume 是陈旧值，
+            // 1.1.0 实测音量卡在 5% 不动）：优先用主 App 中继来的新鲜值；
+            // 中继过期或没值时回落到本地读数（和现在一样，不崩）。
+            // App 没跑过时中继就没有，扩展就跟以前一样。
+            if let relayed = HUDDataRelay.current {
+                music = relayed.music
+                if relayed.volume >= 0 { volume = relayed.volume }
+            }
+        } else {
+            // App 进程：本地读数是真的，读完发给扩展画镜像 HUD。
+            HUDDataRelay.update(music: music, volume: volume)
+        }
         lock.lock()
         _batteryLevel = level
         _batteryCharging = (state == .charging || state == .full)
