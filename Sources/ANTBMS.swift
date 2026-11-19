@@ -311,12 +311,18 @@ final class ANTBMS: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeri
             guard rxBuffer.count >= total else { return }
             let frame = rxBuffer.prefix(total)
             rxBuffer.removeFirst(total)
-            guard frame.suffix(4).elementsEqual(Data([0xF3, 0x00, 0xAA, 0x55])) else {
-                lastFrameInfo = "收到 \(total)B，尾校验失败"
+            // 1.2.2 的教训：尾部第 1 个字节不是固定的。2026-11-19 实测帧尾
+            // 是 F3 00 AA 55，但 2026-11-20 实测 35 帧全是 178B、尾部第 1 字节
+            // 变了（简单求和/XOR/CRC8/CRC16 都算不出 0xF3，它不是校验和，
+            // 更像是数据/状态字节）。固定尾只认最后 2 字节 AA 55；
+            // 真正的防错靠 parseFrame 的电芯范围校验。尾部 4 字节记进诊断。
+            let tailHex = frame.suffix(4).map { String(format: "%02X", $0) }.joined(separator: " ")
+            guard frame.suffix(2).elementsEqual(Data([0xAA, 0x55])) else {
+                lastFrameInfo = "收到 \(total)B，尾部 \(tailHex)，不是 AA 55"
                 continue
             }
             if let parsed = Self.parseFrame(Data(frame)) {
-                lastFrameInfo = "收到 \(total)B，解析成功"
+                lastFrameInfo = "收到 \(total)B，尾部 \(tailHex)，解析成功"
                 snapshot = parsed
                 ANTBMSRelay.update(ANTBMSRelay.Values(
                     voltage: parsed.voltage,
@@ -325,7 +331,7 @@ final class ANTBMS: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeri
                     maxTemp: parsed.temps.max() ?? 0,
                     delta: parsed.cellDelta))
             } else {
-                lastFrameInfo = "收到 \(total)B，解析失败"
+                lastFrameInfo = "收到 \(total)B，尾部 \(tailHex)，解析失败"
             }
             // 解析失败就丢弃不更新，继续等下一帧。
         }
@@ -343,7 +349,8 @@ final class ANTBMS: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeri
         guard f.count >= 10,
               f[0] == 0x7E, f[1] == 0xA1,
               f.count == 6 + Int(f[5]) + 4,
-              f.suffix(4).elementsEqual(Data([0xF3, 0x00, 0xAA, 0x55])) else { return nil }
+              // 1.2.2：尾部只认 AA 55（见 drainBuffer 的注释）。
+              f.suffix(2).elementsEqual(Data([0xAA, 0x55])) else { return nil }
         var n = 0
         while 34 + 2 * n + 1 < f.count {
             let v = u16(f, 34 + 2 * n)

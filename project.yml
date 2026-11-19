@@ -41,8 +41,8 @@ targets:
       path: Support/Info.plist
       properties:
         CFBundleDisplayName: Ninebot Pro+
-        CFBundleShortVersionString: "1.2.1"
-        CFBundleVersion: "45"
+        CFBundleShortVersionString: "1.2.2"
+        CFBundleVersion: "46"
         UILaunchScreen: {}
         UIBackgroundModes: [audio, bluetooth-central]
         NSLocalNetworkUsageDescription: 用于连接九号仪表并发送投屏画面（UDP 5012/5013）。
@@ -77,8 +77,8 @@ targets:
       path: Broadcast/Info.plist
       properties:
         CFBundleDisplayName: Ninebot Pro+
-        CFBundleShortVersionString: "1.2.1"
-        CFBundleVersion: "45"
+        CFBundleShortVersionString: "1.2.2"
+        CFBundleVersion: "46"
         # NSExtension MUST live here: xcodegen writes only the
         # properties into the plist, so the NSExtension dict that
         # used to live only in Broadcast/Info.plist was lost and
