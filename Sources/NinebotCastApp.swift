@@ -46,6 +46,10 @@ struct NinebotProPlusApp: App {
             .onAppear { licenseGate.refresh() }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                 licenseGate.refresh()
+                // 回到前台就立刻重发一次授权码（1.1.5：App 切后台时
+                // 定时器可能被节流，回来立刻补发，扩展下次开镜像
+                // 3 秒内一定能收到）。
+                LicenseRelay.postNow()
             }
         }
     }
