@@ -573,10 +573,11 @@ enum HUDRenderer {
                               isLowBattery ? red : white))
         }
         // 第三行：ANT BMS（只在开了 BMS 显示、又有新鲜数据时画）。
+        // 1.2.3：加上压差（朋友要的）——Δ 就是压差，单位 mV。
         var row3: [Segment] = []
         if settings.showBMS, let bms = snap.bms {
-            let text = String(format: "%.1fV %.1fA %.0fW %.0f%% %d°",
-                              bms.voltage, bms.current, bms.power, bms.soc, bms.maxTemp)
+            let text = String(format: "%.1fV %.1fA %.0fW %.0f%% %d° Δ%dmV",
+                              bms.voltage, bms.current, bms.power, bms.soc, bms.maxTemp, bms.delta)
             row3 = [.icon(.bolt), .text(text, white)]
         }
 
