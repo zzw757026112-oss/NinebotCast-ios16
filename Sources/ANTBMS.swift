@@ -237,7 +237,19 @@ final class ANTBMS: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeri
     /// 订阅确认后（或 3 秒超时后）开始轮询。
     private func startPollingIfNeeded() {
         guard isEnabled, isConnected, cmdChar != nil, pollTimer == nil else { return }
+        // 每次（重）连接都从零开始记：这样静默重连的 10 秒判断才准，
+        // 卡片上的“已发/收到”也是本次连接的数。
+        pollCount = 0
+        rxBytes = 0
+        lastRxAt = nil
+        writeProbeDone = false
+        rxBuffer.removeAll()
         stage = "轮询中"
+        // 1.2.6：先读一次 FFE1——有的保护板收到读请求才回第一帧；
+        // 读是无害的（不改任何设置），读回来的值也走 didUpdateValueFor。
+        if let p = peripheral, let ch = cmdChar {
+            p.readValue(for: ch)
+        }
         sendPoll()
         pollTimer?.invalidate()
         // 1.2.5：轮询 2 秒 → 1 秒（实时更新；写是不带回应的小包，BMS 回包
@@ -266,6 +278,25 @@ final class ANTBMS: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeri
     private func sendPoll() {
         guard let p = peripheral, let ch = cmdChar, isConnected else { return }
         pollCount += 1
+        // 1.2.6：静默重连——保护板会“睡着”：连着、写得进（带回应写入
+        // 也确认），就是不回帧；朋友实测必须开保护板 APP 才恢复，
+        // 不开它连 Ninebot Pro+ 自己的卡片也不更新。10 秒没收到任何
+        // 字节就主动断开重连：重新连接+订阅常能把它唤醒（很多保护板
+        // 连上/订阅后就发一帧）。走现成的断开回调 didDisconnectPeripheral
+        // → scheduleReconnect（2 秒后重扫）。没回过包时按轮询次数算
+        // 静默秒数（1 秒一询）。
+        let silentSeconds: TimeInterval
+        if let last = lastRxAt {
+            silentSeconds = Date().timeIntervalSince(last)
+        } else {
+            silentSeconds = TimeInterval(pollCount)
+        }
+        if silentSeconds >= 10 {
+            stage = "没回包，重连唤醒中"
+            lastFrameInfo = "10 秒没回包，断开重连唤醒"
+            central.cancelPeripheralConnection(p)
+            return
+        }
         p.writeValue(Self.pollCommand, for: ch, type: .withoutResponse)
         // 3 次轮询都没回包：补一次带回应写入，看写入本身通不通。
         if pollCount == 3, rxBytes == 0, !writeProbeDone {
