@@ -585,7 +585,7 @@ struct MainView: View {
     }
 
     private var hudCard: some View {
-        card("HUD 显示", icon: "rectangle.inset.bottomright") {
+        card("HUD 显示", icon: "gauge") {
             Toggle("日期时间", isOn: $hudShowDate)
                 .font(.subheadline)
             Toggle("天气温度", isOn: $hudShowWeather)
