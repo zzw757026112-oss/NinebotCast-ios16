@@ -579,10 +579,10 @@ enum HUDRenderer {
         var row4: [Segment] = []
         if settings.showBMS, let bms = snap.bms {
             row3 = [.icon(.bolt),
-                    .text(String(format: "电压 %.1fV", bms.voltage), white),
+                    .text(String(format: "电压 %.2fV", bms.voltage), white),
                     .text(String(format: "电流 %.1fA", bms.current), white),
                     .text(String(format: "功率 %.0fW", bms.power), white)]
-            row4 = [.text(String(format: "电量 %.0f%%", bms.soc), white),
+            row4 = [.text(String(format: "电量 %.1f%%", bms.soc), white),
                     .text(String(format: "最高温 %d°", bms.maxTemp), white),
                     .text(String(format: "压差 %dmV", bms.delta), white)]
         }

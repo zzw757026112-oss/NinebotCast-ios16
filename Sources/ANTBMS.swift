@@ -240,7 +240,9 @@ final class ANTBMS: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeri
         stage = "轮询中"
         sendPoll()
         pollTimer?.invalidate()
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+        // 1.2.5：轮询 2 秒 → 1 秒（实时更新；写是不带回应的小包，BMS 回包
+        // 实测约每秒 2 帧，1 秒轮询不会压垮它，状态变化最快 1 秒就到仪表）。
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             self?.sendPoll()
         }
     }

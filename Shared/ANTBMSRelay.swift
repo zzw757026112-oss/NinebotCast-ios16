@@ -5,14 +5,15 @@ import Foundation
 ///
 /// 仿 HUDDataRelay（音量中继）的逐名订阅做法：值必须量化成有限名字。
 /// 只传 5 个量（电芯明细不传）：
-///   电压 0.1V：0–120.0V → volt.0..1200
-///   电流 0.1A：-50.0–+50.0A → amp.0..1000（值 + 500）
-///   SOC 1%：0..100 → soc.0..100
-///   最高温度 1°C：-40–+80 → temp.0..120（值 + 40）
+///   电压 0.01V：0–120.00V → volt.0..12000（1.2.5：原来 0.1V，仪表上
+///     停着的车数值看着像冻住的——帧本身就是 0.01V 精度，现在全传过去）
+///   电流 0.1A：-50.0–+50.0A → amp.0..1000（值 + 500；帧本身只有 0.1A 精度）
+///   SOC 0.1%：0..100 → soc.0..1000（1.2.5：原来 1%，帧本身是 0.1% 精度）
+///   最高温度 1°C：-40–+80 → temp.0..120（值 + 40；帧本身就是整数 °C）
 ///   电芯压差 mV：0–500 → delta.0..500
 ///   com.corpsezhao.ninebotcast.bms.clear
 ///
-/// 新鲜度 5 秒：BMS 每 2 秒轮询一次，App 每 2 秒重发，5 秒足够。
+/// 新鲜度 5 秒：BMS 每 1 秒轮询一次（1.2.5：原来 2 秒），App 每 2 秒重发，5 秒足够。
 /// 5 秒收不到就当 App 没在跑 / BMS 断开了，扩展回落到无数据
 /// （HUD 的 BMS 行消失，跟以前一样，不崩）。
 /// 1.2.0 新增：朋友那辆换了锂电池的车的 ANT BMS（MAYI/JNFN）。
@@ -108,9 +109,9 @@ enum ANTBMSRelay {
 
     /// 5 个量各发一条名字。接收端用同一个 _updatedAt 记新鲜度。
     private static func post(_ v: Values) {
-        postName("\(prefix).volt.\(Int((v.voltage * 10).rounded()))")
+        postName("\(prefix).volt.\(Int((v.voltage * 100).rounded()))")
         postName("\(prefix).amp.\(Int((v.current * 10).rounded()) + 500)")
-        postName("\(prefix).soc.\(Int(v.soc.rounded()))")
+        postName("\(prefix).soc.\(Int((v.soc * 10).rounded()))")
         postName("\(prefix).temp.\(v.maxTemp + 40)")
         postName("\(prefix).delta.\(v.delta)")
     }
@@ -140,9 +141,9 @@ enum ANTBMSRelay {
     }
 
     /// 扩展启动时调一次（SampleHandler.init 里）。
-    /// 逐名订阅（OrientationRelay 同款，扩展里 proven）：电压 1201 个
-    /// 名字 + 电流 1001 个 + SOC 101 个 + 温度 121 个 + 压差 501 个
-    /// + clear 1 个，共 2926 个。observing 守卫防止重复订阅。
+    /// 逐名订阅（OrientationRelay 同款，扩展里 proven）：电压 12001 个
+    /// 名字 + 电流 1001 个 + SOC 1001 个 + 温度 121 个 + 压差 501 个
+    /// + clear 1 个，共 14627 个。observing 守卫防止重复订阅。
     static func startObserving() {
         lock.lock()
         guard !observing else { lock.unlock(); return }
@@ -150,9 +151,9 @@ enum ANTBMSRelay {
         lock.unlock()
         let center = CFNotificationCenterGetDarwinNotifyCenter()
         var names: [String] = [clearName]
-        for v in 0...1200 { names.append("\(prefix).volt.\(v)") }
+        for v in 0...12000 { names.append("\(prefix).volt.\(v)") }
         for v in 0...1000 { names.append("\(prefix).amp.\(v)") }
-        for v in 0...100 { names.append("\(prefix).soc.\(v)") }
+        for v in 0...1000 { names.append("\(prefix).soc.\(v)") }
         for v in 0...120 { names.append("\(prefix).temp.\(v)") }
         for v in 0...500 { names.append("\(prefix).delta.\(v)") }
         for name in names {
@@ -184,9 +185,9 @@ enum ANTBMSRelay {
         defer { recvLock.unlock() }
         var v = _values ?? Values(voltage: 0, current: 0, soc: 0, maxTemp: 0, delta: 0)
         switch parts[0] {
-        case "volt": v.voltage = Float(raw) / 10
+        case "volt": v.voltage = Float(raw) / 100
         case "amp": v.current = Float(raw - 500) / 10
-        case "soc": v.soc = Float(raw)
+        case "soc": v.soc = Float(raw) / 10
         case "temp": v.maxTemp = raw - 40
         case "delta": v.delta = raw
         default: return

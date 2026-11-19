@@ -656,7 +656,7 @@ struct MainView: View {
                         .foregroundColor(.secondary)
                 }
                 if let s = antbms.snapshot {
-                    Text(String(format: "总电压 %.2fV　电流 %.1fA　功率 %.0fW　SOC %.0f%%",
+                    Text(String(format: "总电压 %.2fV　电流 %.1fA　功率 %.0fW　SOC %.1f%%",
                                 s.voltage, s.current, s.power, s.soc))
                         .font(.caption)
                     Text("最高温 \(s.temps.max() ?? 0)°C　温度 \(s.temps.map(String.init).joined(separator: "/"))°C")
