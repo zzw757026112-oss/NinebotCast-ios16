@@ -16,12 +16,12 @@ import os.log
 /// - SampleHandler 的 processSampleBuffer 在系统队列上调 submitFrame，
 ///   只做节流 + 背压判断，缩放/编码都在本类里同步完成，不保留源 buffer。
 final class ScreenCaster {
-    // 与主 App 五寸预设一致
+    // 与主 App 五寸预设一致（分辨率相同；镜像帧率/码率已提到 30fps/3Mbps）
     static let outWidth = 848
     static let outHeight = 480
-    static let fps: Int32 = 20
-    static let bitrate: UInt32 = 2_000_000
-    static let gop = 10
+    static let fps: Int32 = 30
+    static let bitrate: UInt32 = 3_000_000
+    static let gop = 15
     static let videoPort: UInt16 = 5012
     static let controlPort: UInt16 = 5013
 
@@ -214,7 +214,7 @@ final class ScreenCaster {
         startPongReceive()
         startHeartbeat()
         startPacer()
-        log.info("mirror：开始推流 → \(ip):5012（848x480 @20fps 2Mbps）")
+        log.info("mirror：开始推流 → \(ip):5012（848x480 @30fps 3Mbps）")
     }
 
     private func startPongReceive() {
@@ -248,7 +248,7 @@ final class ScreenCaster {
         heartbeatTimer = timer
     }
 
-    /// 每毫秒 2 包起步；有积压时自动加速（最多 10 包/毫秒）追平。
+    /// 每毫秒 3 包起步；有积压时自动加速（最多 10 包/毫秒）追平。
     private func startPacer() {
         let timer = DispatchSource.makeTimerSource(queue: streamQueue)
         timer.schedule(deadline: .now() + 0.001, repeating: .milliseconds(1),
@@ -256,7 +256,7 @@ final class ScreenCaster {
         timer.setEventHandler { [weak self] in
             guard let self, !self.stopped, self.videoFd >= 0, let ip = self.dashboardIP else { return }
             let backlog = self.pendingPackets.count - self.sendCursor
-            let drain = min(10, 2 + backlog / 20)
+            let drain = min(10, 3 + backlog / 20)
             var sent = 0
             while sent < drain, self.sendCursor < self.pendingPackets.count {
                 let packet = self.pendingPackets[self.sendCursor]
@@ -272,12 +272,12 @@ final class ScreenCaster {
 
     // MARK: - 帧管线（系统录屏队列调入）
 
-    /// 录屏每帧都到这里：节流到 20fps，背压丢帧，缩放后送编码器。
+    /// 录屏每帧都到这里：节流到 30fps，背压丢帧，缩放后送编码器。
     /// 源 buffer 只在本次调用内读，不保留。
     func submitFrame(_ pixelBuffer: CVPixelBuffer) {
         if stopped || paused || dashboardIP == nil || encoder == nil { return }
         let now = Date()
-        guard now.timeIntervalSince(lastSubmitTime) >= 0.05 else { return }
+        guard now.timeIntervalSince(lastSubmitTime) >= 1.0 / 30.0 else { return }
         inflightLock.lock()
         let inflight = inflightFrames
         inflightLock.unlock()
