@@ -35,7 +35,6 @@ struct MainView: View {
     @AppStorage("nbc.hud.showWeather") private var hudShowWeather = true
     @AppStorage("nbc.hud.showSignal") private var hudShowSignal = true
     @AppStorage("nbc.hud.showBattery") private var hudShowBattery = true
-    @AppStorage("nbc.hud.showMusic") private var hudShowMusic = true
     @AppStorage("nbc.hud.showVolume") private var hudShowVolume = true
     @AppStorage("nbc.hud.position") private var hudPosition = 0 // 0 右下 1 左下 2 左上 3 右上
     @AppStorage("nbc.hud.fontSize") private var hudFontSize = 1 // 0 小 1 中 2 大
@@ -573,7 +572,6 @@ struct MainView: View {
             showWeather: hudShowWeather,
             showSignal: hudShowSignal,
             showBattery: hudShowBattery,
-            showMusic: hudShowMusic,
             showVolume: hudShowVolume,
             position: positions[min(max(hudPosition, 0), positions.count - 1)],
             fontSize: sizes[min(max(hudFontSize, 0), sizes.count - 1)])
@@ -593,8 +591,6 @@ struct MainView: View {
             Toggle("信号", isOn: $hudShowSignal)
                 .font(.subheadline)
             Toggle("电量", isOn: $hudShowBattery)
-                .font(.subheadline)
-            Toggle("音乐", isOn: $hudShowMusic)
                 .font(.subheadline)
             Toggle("音量", isOn: $hudShowVolume)
                 .font(.subheadline)
@@ -619,7 +615,6 @@ struct MainView: View {
         .onChange(of: hudShowWeather) { _ in postHUDSettings() }
         .onChange(of: hudShowSignal) { _ in postHUDSettings() }
         .onChange(of: hudShowBattery) { _ in postHUDSettings() }
-        .onChange(of: hudShowMusic) { _ in postHUDSettings() }
         .onChange(of: hudShowVolume) { _ in postHUDSettings() }
         .onChange(of: hudPosition) { _ in postHUDSettings() }
         .onChange(of: hudFontSize) { _ in postHUDSettings() }

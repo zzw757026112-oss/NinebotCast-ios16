@@ -20,8 +20,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
         // HUD 设置接力：App 发 Darwin 通知告诉扩展用户选的显示项、
         // 位置、字号（扩展自己读不到 App 的设置），越早订阅越好。
         HUDSettingsRelay.startObserving()
-        // 音乐 + 音量接力：App 发 Darwin 通知告诉扩展正在放的歌和
-        // 手机音量（扩展自己读不到），越早订阅越好。
+        // 音量接力：App 发 Darwin 通知告诉扩展手机音量
+        //（扩展自己读不到），越早订阅越好。1.1.9：音乐已删。
         HUDDataRelay.startObserving()
     }
 

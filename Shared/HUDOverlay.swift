@@ -16,7 +16,6 @@ import UIKit
 /// 上行：时钟图标 + 日期时间（11月18日 周三 21:07）
 /// 下行：天气图标 + 温度、联网方式（WiFi 图标 / 5G / 4G）、
 ///       音量、电池图标 + 电量百分比。
-/// 有音乐在放时再加一行：音符图标 + 歌名 - 歌手。
 /// 电量低于 20% 时电池图标和百分比变红。
 /// 胶囊：半透明黑底 + 细亮边、圆角，字和图标同一行垂直居中对齐。
 /// 来电还是左下角红色小条，不变。
@@ -63,7 +62,6 @@ struct HUDSnapshot: Equatable {
     var charging: Bool
     var network: NetworkKind
     var calling: Bool
-    var music: String? // 正在放的歌（"歌名 - 歌手"，没放就是 nil）
     var volume: Float // 手机音量 0...1，-1 = 未知
 }
 
@@ -86,7 +84,6 @@ final class HUDData: NSObject, CLLocationManagerDelegate, CXCallObserverDelegate
     private var _batteryCharging = false
     private var _network: NetworkKind = .unknown
     private var _calling = false
-    private var _music: String?
     private var _volume: Float = -1
 
     private let dateFormatter: DateFormatter
@@ -144,7 +141,6 @@ final class HUDData: NSObject, CLLocationManagerDelegate, CXCallObserverDelegate
                            charging: _batteryCharging,
                            network: _network,
                            calling: _calling,
-                           music: _music,
                            volume: _volume)
     }
 
@@ -194,42 +190,27 @@ final class HUDData: NSObject, CLLocationManagerDelegate, CXCallObserverDelegate
         let level = UIDevice.current.batteryLevel
         let state = UIDevice.current.batteryState
         let date = dateFormatter.string(from: Date())
-        // 正在放的歌：系统“正在播放”信息（任何 App 在放都能读到，
-        // 包括 QQ 音乐、网易云、Spotify；没放就是 nil）。
-        let info = MPNowPlayingInfoCenter.default().nowPlayingInfo
-        let title = info?[MPMediaItemPropertyTitle] as? String
-        let artist = info?[MPMediaItemPropertyArtist] as? String
-        var music: String?
-        if let title, !title.isEmpty {
-            music = (artist?.isEmpty == false) ? "\(title) - \(artist!)" : title
-            // 太长会把胶囊撑出仪表，截到 24 字。
-            if let m = music, m.count > 24 { music = String(m.prefix(24)) + "…" }
-        }
         // 手机音量（0...1）。
         var volume = AVAudioSession.sharedInstance().outputVolume
         if isExtension {
-            // 扩展进程读不到真实音乐（MPNowPlayingInfoCenter 返回 nil，
-            // 音乐行永不出现）和真实音量（outputVolume 是陈旧值，
+            // 扩展进程读不到真实音量（outputVolume 是陈旧值，
             // 1.1.0 实测音量卡在 5% 不动）：优先用主 App 中继来的新鲜值；
             // 中继过期或没值时回落到本地读数（和现在一样，不崩）。
             // App 没跑过时中继就没有，扩展就跟以前一样。
             // 1.1.7：中继改逐名订阅（NULL 名观察者在扩展里静默失效，
-            // 是 1.1.1–1.1.6 音乐/音量镜像不实时的根因）。
-            // 歌名传不过来（Darwin 通知名字空间有限），中继只传
-            // “在放 / 没放”：在放就显示音符 + “正在播放”。
+            // 是 1.1.1–1.1.6 音量镜像不实时的根因之一）。
+            // 1.1.9：音乐已删，只中继音量。
             if let relayed = HUDDataRelay.current {
-                music = relayed.musicPlaying ? "正在播放" : nil
                 if relayed.volume >= 0 { volume = relayed.volume }
             }
         } else {
             // App 进程：本地读数是真的，读完发给扩展画镜像 HUD。
-            HUDDataRelay.update(musicPlaying: music != nil, volume: volume)
+            HUDDataRelay.update(volume: volume)
         }
         lock.lock()
         _batteryLevel = level
         _batteryCharging = (state == .charging || state == .full)
         _dateText = date
-        _music = music
         _volume = volume
         lock.unlock()
         refreshWeatherIfNeeded()
@@ -451,8 +432,8 @@ enum HUDRenderer {
     private static func layer(forWidth width: Int, height: Int) -> CGImage? {
         let snap = HUDData.shared.snapshot()
         let settings = HUDSettingsRelay.current
-        let settingsKey = "\(settings.showDate ? 1 : 0)\(settings.showWeather ? 1 : 0)\(settings.showSignal ? 1 : 0)\(settings.showBattery ? 1 : 0)\(settings.showMusic ? 1 : 0)\(settings.showVolume ? 1 : 0)|\(settings.position.rawValue)|\(settings.fontSize.rawValue)"
-        let key = "\(width)x\(height)|\(snap.date)|\(snap.weatherCode ?? -1)|\(snap.weatherTemp ?? -999)|\(snap.batteryLevel)|\(snap.charging ? 1 : 0)|\(snap.network.cacheKey)|\(snap.calling ? 1 : 0)|\(snap.music ?? "")|\(snap.volume)|\(settingsKey)"
+        let settingsKey = "\(settings.showDate ? 1 : 0)\(settings.showWeather ? 1 : 0)\(settings.showSignal ? 1 : 0)\(settings.showBattery ? 1 : 0)\\(settings.showVolume ? 1 : 0)|\(settings.position.rawValue)|\(settings.fontSize.rawValue)"
+        let key = "\(width)x\(height)|\(snap.date)|\(snap.weatherCode ?? -1)|\(snap.weatherTemp ?? -999)|\(snap.batteryLevel)|\(snap.charging ? 1 : 0)|\(snap.network.cacheKey)|\(snap.calling ? 1 : 0)|\(snap.volume)|\(settingsKey)"
         lock.lock()
         defer { lock.unlock() }
         if key == cachedKey, let layer = cachedLayer { return layer }
@@ -481,7 +462,6 @@ enum HUDRenderer {
         case clock
         case weather(Int) // Open-Meteo weather_code
         case wifi
-        case music // 音符
         case speaker // 喇叭（音量）
     }
 
@@ -566,12 +546,6 @@ enum HUDRenderer {
             row2.append(.text(snap.batteryLevel < 0 ? "--%" : "\(Int(snap.batteryLevel * 100))%",
                               isLowBattery ? red : white))
         }
-        // 第三行：正在放的歌（没放就不画，胶囊还是两行）。
-        var row3: [Segment] = []
-        if settings.showMusic, let music = snap.music, !music.isEmpty {
-            row3 = [.icon(.music), .text(music, white)]
-        }
-
         // ---- 量每段宽度 ----
         // 段间间距：图标后面跟文字是“一组”（小间距），其余都是组间距。
         func isIcon(_ seg: Segment) -> Bool {
@@ -602,7 +576,7 @@ enum HUDRenderer {
         }
 
         // 只画非空的行；行数决定胶囊高度（一行就矮一点）。
-        let measuredRows = [measure(row1), measure(row2), measure(row3)].filter { !$0.items.isEmpty }
+        let measuredRows = [measure(row1), measure(row2)].filter { !$0.items.isEmpty }
         // 全关了、又没来电：返回全透明层（旧胶囊随之消失）。
         if measuredRows.isEmpty && !snap.calling {
             return context.makeImage()
@@ -748,29 +722,6 @@ enum HUDRenderer {
             context.fillPath()
         case .weather(let code):
             drawWeather(code: code, in: rect, context: context)
-        case .music:
-            // 音符：下面一个实心椭圆 + 竖线 + 顶上小旗
-            let headW = rect.width * 0.34
-            let headH = rect.height * 0.26
-            let head = CGRect(x: rect.minX + rect.width * 0.18,
-                              y: rect.minY + rect.height * 0.08,
-                              width: headW, height: headH)
-            context.addEllipse(in: head)
-            context.fillPath()
-            let stemX = head.maxX - headW * 0.15
-            context.beginPath()
-            context.move(to: CGPoint(x: stemX, y: head.midY))
-            context.addLine(to: CGPoint(x: stemX, y: rect.maxY - rect.height * 0.08))
-            context.strokePath()
-            context.beginPath()
-            context.move(to: CGPoint(x: stemX, y: rect.maxY - rect.height * 0.08))
-            context.addQuadCurve(to: CGPoint(x: stemX + rect.width * 0.34, y: rect.maxY - rect.height * 0.32),
-                                 control: CGPoint(x: stemX + rect.width * 0.3, y: rect.maxY - rect.height * 0.06))
-            context.addLine(to: CGPoint(x: stemX + rect.width * 0.34, y: rect.maxY - rect.height * 0.52))
-            context.addQuadCurve(to: CGPoint(x: stemX, y: rect.maxY - rect.height * 0.3),
-                                 control: CGPoint(x: stemX + rect.width * 0.3, y: rect.maxY - rect.height * 0.28))
-            context.closePath()
-            context.fillPath()
         case .speaker:
             // 喇叭：左边小方块 + 右边锥形 + 两道声波弧
             let bx = rect.minX + rect.width * 0.08

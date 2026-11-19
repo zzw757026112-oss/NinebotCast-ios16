@@ -16,10 +16,9 @@ struct NinebotProPlusApp: App {
         // HUD 设置接力：同上，把用户在 HUD 设置卡片里选的显示项、
         // 位置、字号发给录屏扩展（扩展自己读不到 App 的设置）。
         HUDSettingsRelay.startPosting()
-        // 音乐 + 音量接力：同上，把主 App 读到的正在播放的歌和手机
-        // 音量发给录屏扩展（扩展进程里 MPNowPlayingInfoCenter 读不
-        // 到音乐、outputVolume 是陈旧值，镜像时音乐行不显示、音量
-        // 卡住不动）。值变了立刻发，另外每 2 秒重发。
+        // 音量接力：同上，把主 App 读到的手机音量发给录屏扩展
+        //（扩展进程里 outputVolume 是陈旧值，镜像时音量卡住不动）。
+        // 值变了立刻发，另外每 2 秒重发。1.1.9：音乐已删。
         HUDDataRelay.startPosting()
         // 下面这行必须有：HUDData 是懒加载的，镜像时主 App 进程自己
         // 不画帧、永远不会创建它，tick() 也就不会跑，中继没数据可发。

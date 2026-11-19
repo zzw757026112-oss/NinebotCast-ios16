@@ -7,7 +7,8 @@ import os.log
 /// VideoToolbox H.264 硬编码器（主 App H264Encoder 的精简版，输出 Annex-B 流）。
 ///
 /// 录屏扩展专用：没有 Diag 依赖，用 os_log 记录；参数与主 App 的五寸预设
-/// 完全一致（848x480 / 30fps / 3Mbps / GOP 15 / Main profile / 零延迟）。
+/// 完全一致（848x480 / 20fps / 2Mbps / GOP 10 / Main profile / 零延迟；
+/// 1.1.9 由 30fps/3Mbps/GOP 15 改回）。
 final class ScreenEncoder {
     /// (annexB 数据, 是否关键帧)
     var onAnnexBFrame: ((Data, Bool) -> Void)?
