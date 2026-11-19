@@ -27,7 +27,6 @@ targets:
       - path: Shared/VehicleDataRelay.swift
       - path: Shared/HUDDataRelay.swift
       - path: Shared/LicenseManager.swift
-      - path: Shared/LicenseRelay.swift
     dependencies:
       - target: ScreenCast
     settings:
@@ -40,8 +39,8 @@ targets:
       path: Support/Info.plist
       properties:
         CFBundleDisplayName: Ninebot Pro+
-        CFBundleShortVersionString: "1.1.5"
-        CFBundleVersion: "39"
+        CFBundleShortVersionString: "1.1.6"
+        CFBundleVersion: "40"
         UILaunchScreen: {}
         UIBackgroundModes: [audio, bluetooth-central]
         NSLocalNetworkUsageDescription: 用于连接九号仪表并发送投屏画面（UDP 5012/5013）。
@@ -69,7 +68,6 @@ targets:
       - path: Shared/VehicleDataRelay.swift
       - path: Shared/HUDDataRelay.swift
       - path: Shared/LicenseManager.swift
-      - path: Shared/LicenseRelay.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.corpsezhao.ninebotcast.screencast
@@ -77,8 +75,8 @@ targets:
       path: Broadcast/Info.plist
       properties:
         CFBundleDisplayName: Ninebot Pro+
-        CFBundleShortVersionString: "1.1.5"
-        CFBundleVersion: "39"
+        CFBundleShortVersionString: "1.1.6"
+        CFBundleVersion: "40"
         # NSExtension MUST live here: xcodegen writes only the
         # properties into the plist, so the NSExtension dict that
         # used to live only in Broadcast/Info.plist was lost and

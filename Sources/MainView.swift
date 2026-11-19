@@ -634,8 +634,9 @@ struct MainView: View {
 
     // MARK: - 授权（状态 + 更换授权码）
     // 1.1.3 的教训：App 里激活了，扩展却读不到码（钥匙串访问组
-    // 不同），主界面又没有输入框，用户卡死。现在码靠 LicenseRelay
-    // 中继给扩展；这里常驻一个入口，换码、查有效期都在这。
+    // 不同），主界面又没有输入框，用户卡死。这里常驻一个入口，
+    // 换码、查有效期都在这。1.1.6：扩展不再验授权码（只在 App
+    // 里验一次），中继已删除。
     private var licenseCard: some View {
         card("授权", icon: "key.fill") {
             HStack(spacing: 6) {
