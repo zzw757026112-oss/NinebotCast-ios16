@@ -505,7 +505,7 @@ enum HUDRenderer {
         return CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
     }
 
-    /// 把胶囊（最多三行：日期 / 天气信号音量电量 / BMS）+ 来电红条画进一张全尺寸透明层。
+    /// 把胶囊（最多四行：日期 / 天气信号音量电量 / BMS 两行）+ 来电红条画进一张全尺寸透明层。
     /// CGContext 在这里是 y 朝上的坐标系（与 TestImageSource 相同），
     /// 所以「离顶 xx」要换算成 baseline = 高 - 顶距 - 上伸。
     /// 设置全关、又没来电时返回一张全透明层（不是 nil），
@@ -572,13 +572,19 @@ enum HUDRenderer {
             row2.append(.text(snap.batteryLevel < 0 ? "--%" : "\(Int(snap.batteryLevel * 100))%",
                               isLowBattery ? red : white))
         }
-        // 第三行：ANT BMS（只在开了 BMS 显示、又有新鲜数据时画）。
-        // 1.2.3：加上压差（朋友要的）——Δ 就是压差，单位 mV。
+        // 第三、四行：ANT BMS（只在开了 BMS 显示、又有新鲜数据时画）。
+        // 1.2.4：每个数值前面写名称，每行三个——第三行电压/电流/功率，
+        // 第四行电量/最高温/压差（朋友要的格式）。
         var row3: [Segment] = []
+        var row4: [Segment] = []
         if settings.showBMS, let bms = snap.bms {
-            let text = String(format: "%.1fV %.1fA %.0fW %.0f%% %d° Δ%dmV",
-                              bms.voltage, bms.current, bms.power, bms.soc, bms.maxTemp, bms.delta)
-            row3 = [.icon(.bolt), .text(text, white)]
+            row3 = [.icon(.bolt),
+                    .text(String(format: "电压 %.1fV", bms.voltage), white),
+                    .text(String(format: "电流 %.1fA", bms.current), white),
+                    .text(String(format: "功率 %.0fW", bms.power), white)]
+            row4 = [.text(String(format: "电量 %.0f%%", bms.soc), white),
+                    .text(String(format: "最高温 %d°", bms.maxTemp), white),
+                    .text(String(format: "压差 %dmV", bms.delta), white)]
         }
 
         // ---- 量每段宽度 ----
@@ -611,7 +617,7 @@ enum HUDRenderer {
         }
 
         // 只画非空的行；行数决定胶囊高度（一行就矮一点）。
-        let measuredRows = [measure(row1), measure(row2), measure(row3)].filter { !$0.items.isEmpty }
+        let measuredRows = [measure(row1), measure(row2), measure(row3), measure(row4)].filter { !$0.items.isEmpty }
         // 全关了、又没来电：返回全透明层（旧胶囊随之消失）。
         if measuredRows.isEmpty && !snap.calling {
             return context.makeImage()
