@@ -20,6 +20,9 @@ struct NinebotProPlusApp: App {
         //（扩展进程里 outputVolume 是陈旧值，镜像时音量卡住不动）。
         // 值变了立刻发，另外每 2 秒重发。1.1.9：音乐已删。
         HUDDataRelay.startPosting()
+        // ANT BMS 接力：同上，每 2 秒把最新电池数据重发给录屏扩展
+        //（扩展进程自己连不上 BLE）。1.2.0 新增。
+        ANTBMSRelay.startPosting()
         // 下面这行必须有：HUDData 是懒加载的，镜像时主 App 进程自己
         // 不画帧、永远不会创建它，tick() 也就不会跑，中继没数据可发。
         // 启动时就建一份，让它的每秒 tick 在后台保活里一直跑。

@@ -23,6 +23,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
         // 音量接力：App 发 Darwin 通知告诉扩展手机音量
         //（扩展自己读不到），越早订阅越好。1.1.9：音乐已删。
         HUDDataRelay.startObserving()
+        // ANT BMS 接力：订阅电池数据的 5 组名字，越早订阅越好。1.2.0 新增。
+        ANTBMSRelay.startObserving()
     }
 
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {

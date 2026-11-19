@@ -17,6 +17,7 @@ enum AppVersion {
 
 struct MainView: View {
     @StateObject private var engine = CastEngine()
+    @StateObject private var antbms = ANTBMS.shared
     @Environment(\.colorScheme) private var scheme
 
     // 授权门（App 持有）：授权卡片显示状态、更换授权码用。
@@ -36,6 +37,7 @@ struct MainView: View {
     @AppStorage("nbc.hud.showSignal") private var hudShowSignal = true
     @AppStorage("nbc.hud.showBattery") private var hudShowBattery = true
     @AppStorage("nbc.hud.showVolume") private var hudShowVolume = true
+    @AppStorage("nbc.hud.showBMS") private var hudShowBMS = true
     @AppStorage("nbc.hud.position") private var hudPosition = 0 // 0 右下 1 左下 2 左上 3 右上
     @AppStorage("nbc.hud.fontSize") private var hudFontSize = 1 // 0 小 1 中 2 大
     @State private var gopIndex = 25            // 关键帧间隔（帧）
@@ -85,6 +87,7 @@ struct MainView: View {
                     sourceCard
                     mirrorCard
                     hudCard
+                    bmsCard
                     licenseCard
                     metricsCard
                     diagCard
@@ -573,6 +576,7 @@ struct MainView: View {
             showSignal: hudShowSignal,
             showBattery: hudShowBattery,
             showVolume: hudShowVolume,
+            showBMS: hudShowBMS,
             position: positions[min(max(hudPosition, 0), positions.count - 1)],
             fontSize: sizes[min(max(hudFontSize, 0), sizes.count - 1)])
     }
@@ -593,6 +597,8 @@ struct MainView: View {
             Toggle("电量", isOn: $hudShowBattery)
                 .font(.subheadline)
             Toggle("音量", isOn: $hudShowVolume)
+                .font(.subheadline)
+            Toggle("电池 BMS", isOn: $hudShowBMS)
                 .font(.subheadline)
             Picker("位置", selection: $hudPosition) {
                 Text("右下").tag(0)
@@ -616,8 +622,66 @@ struct MainView: View {
         .onChange(of: hudShowSignal) { _ in postHUDSettings() }
         .onChange(of: hudShowBattery) { _ in postHUDSettings() }
         .onChange(of: hudShowVolume) { _ in postHUDSettings() }
+        .onChange(of: hudShowBMS) { _ in postHUDSettings() }
         .onChange(of: hudPosition) { _ in postHUDSettings() }
         .onChange(of: hudFontSize) { _ in postHUDSettings() }
+    }
+
+    // MARK: - 电池 BMS (ANT)（朋友那辆换了锂电池的车，1.2.0）
+    // 只支持 ANT BMS（MAYI/JNFN）新格式 7E A1 帧。内容由 ANTBMS 的
+    // @Published 驱动，不用 timer 轮询 UI。
+    private var bmsCard: some View {
+        card("电池 BMS (ANT)", icon: "bolt.fill") {
+            Toggle("启用 ANT BMS", isOn: $antbms.isEnabled)
+                .font(.subheadline)
+            if antbms.isEnabled {
+                HStack(spacing: 6) {
+                    Text(antbms.isConnected ? "已连接" : (antbms.isScanning ? "搜索中…" : "未连接"))
+                    if let name = antbms.deviceName {
+                        Text(name)
+                    }
+                    if let rssi = antbms.rssi {
+                        Text("\(rssi)dBm")
+                    }
+                    Spacer()
+                }
+                .font(.caption)
+                .foregroundColor(.secondary)
+                if let s = antbms.snapshot {
+                    Text(String(format: "总电压 %.2fV　电流 %.1fA　功率 %.0fW　SOC %.0f%%",
+                                s.voltage, s.current, s.power, s.soc))
+                        .font(.caption)
+                    Text("最高温 \(s.temps.max() ?? 0)°C　温度 \(s.temps.map(String.init).joined(separator: "/"))°C")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(String(format: "电芯 %dS：最低 %.3fV (#%d)　最高 %.3fV (#%d)　均值 %.3fV　压差 %dmV",
+                                s.cellCount, Double(s.cellMin) / 1000, s.minCellIndex,
+                                Double(s.cellMax) / 1000, s.maxCellIndex,
+                                Double(s.cellAvg) / 1000, s.cellDelta))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    HStack(spacing: 4) {
+                        Text("更新于")
+                        Text(s.updatedAt, style: .time)
+                    }
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                } else {
+                    Text("等连接…")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                if let err = antbms.lastError {
+                    Text(err)
+                        .font(.caption2)
+                        .foregroundColor(.red)
+                }
+            } else {
+                Text("只支持 ANT BMS（MAYI/JNFN）新格式 7E A1 帧；打开后自动连信号最强的一台，数据同时显示在仪表 HUD 第三行。")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
     }
 
     // MARK: - 授权（状态 + 更换授权码）

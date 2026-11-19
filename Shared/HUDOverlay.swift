@@ -16,6 +16,7 @@ import UIKit
 /// 上行：时钟图标 + 日期时间（11月18日 周三 21:07）
 /// 下行：天气图标 + 温度、联网方式（WiFi 图标 / 5G / 4G）、
 ///       音量、电池图标 + 电量百分比。
+/// 有 ANT BMS 数据时再加一行：闪电图标 + 电压/电流/功率/SOC/最高温（1.2.0）。
 /// 电量低于 20% 时电池图标和百分比变红。
 /// 胶囊：半透明黑底 + 细亮边、圆角，字和图标同一行垂直居中对齐。
 /// 来电还是左下角红色小条，不变。
@@ -63,6 +64,17 @@ struct HUDSnapshot: Equatable {
     var network: NetworkKind
     var calling: Bool
     var volume: Float // 手机音量 0...1，-1 = 未知
+    var bms: BMSHUDData? // ANT BMS 读数（没数据就是 nil）
+}
+
+/// HUD 上 BMS 行的数据（电压/电流/功率/SOC/最高温/压差）。
+struct BMSHUDData: Equatable {
+    var voltage: Float
+    var current: Float
+    var power: Float
+    var soc: Float
+    var maxTemp: Int
+    var delta: Int
 }
 
 final class HUDData: NSObject, CLLocationManagerDelegate, CXCallObserverDelegate {
@@ -85,6 +97,7 @@ final class HUDData: NSObject, CLLocationManagerDelegate, CXCallObserverDelegate
     private var _network: NetworkKind = .unknown
     private var _calling = false
     private var _volume: Float = -1
+    private var _bms: BMSHUDData?
 
     private let dateFormatter: DateFormatter
     private var timer: DispatchSourceTimer?
@@ -141,7 +154,8 @@ final class HUDData: NSObject, CLLocationManagerDelegate, CXCallObserverDelegate
                            charging: _batteryCharging,
                            network: _network,
                            calling: _calling,
-                           volume: _volume)
+                           volume: _volume,
+                           bms: _bms)
     }
 
     // MARK: - 联网方式
@@ -207,11 +221,21 @@ final class HUDData: NSObject, CLLocationManagerDelegate, CXCallObserverDelegate
             // App 进程：本地读数是真的，读完发给扩展画镜像 HUD。
             HUDDataRelay.update(volume: volume)
         }
+        // ANT BMS（1.2.0）：和音量同一路子——App 进程读中继的本地缓存
+        //（ANTBMS 解析到帧就调 ANTBMSRelay.update），扩展进程读通知；
+        // 5 秒过期就当没数据，BMS 行消失。
+        var bms: BMSHUDData?
+        if let r = ANTBMSRelay.current {
+            bms = BMSHUDData(voltage: r.voltage, current: r.current,
+                             power: r.voltage * r.current, soc: r.soc,
+                             maxTemp: r.maxTemp, delta: r.delta)
+        }
         lock.lock()
         _batteryLevel = level
         _batteryCharging = (state == .charging || state == .full)
         _dateText = date
         _volume = volume
+        _bms = bms
         lock.unlock()
         refreshWeatherIfNeeded()
     }
@@ -432,8 +456,9 @@ enum HUDRenderer {
     private static func layer(forWidth width: Int, height: Int) -> CGImage? {
         let snap = HUDData.shared.snapshot()
         let settings = HUDSettingsRelay.current
-        let settingsKey = "\(settings.showDate ? 1 : 0)\(settings.showWeather ? 1 : 0)\(settings.showSignal ? 1 : 0)\(settings.showBattery ? 1 : 0)\\(settings.showVolume ? 1 : 0)|\(settings.position.rawValue)|\(settings.fontSize.rawValue)"
-        let key = "\(width)x\(height)|\(snap.date)|\(snap.weatherCode ?? -1)|\(snap.weatherTemp ?? -999)|\(snap.batteryLevel)|\(snap.charging ? 1 : 0)|\(snap.network.cacheKey)|\(snap.calling ? 1 : 0)|\(snap.volume)|\(settingsKey)"
+        let settingsKey = "\(settings.showDate ? 1 : 0)\(settings.showWeather ? 1 : 0)\(settings.showSignal ? 1 : 0)\(settings.showBattery ? 1 : 0)\(settings.showVolume ? 1 : 0)\(settings.showBMS ? 1 : 0)|\(settings.position.rawValue)|\(settings.fontSize.rawValue)"
+        let bmsKey = snap.bms.map { "\($0.voltage)|\($0.current)|\($0.power)|\($0.soc)|\($0.maxTemp)|\($0.delta)" } ?? "-"
+        let key = "\(width)x\(height)|\(snap.date)|\(snap.weatherCode ?? -1)|\(snap.weatherTemp ?? -999)|\(snap.batteryLevel)|\(snap.charging ? 1 : 0)|\(snap.network.cacheKey)|\(snap.calling ? 1 : 0)|\(snap.volume)|\(bmsKey)|\(settingsKey)"
         lock.lock()
         defer { lock.unlock() }
         if key == cachedKey, let layer = cachedLayer { return layer }
@@ -463,6 +488,7 @@ enum HUDRenderer {
         case weather(Int) // Open-Meteo weather_code
         case wifi
         case speaker // 喇叭（音量）
+        case bolt // 闪电（ANT BMS）
     }
 
     private static func ctLine(_ text: String, font: CTFont, color: CGColor) -> CTLine {
@@ -479,7 +505,7 @@ enum HUDRenderer {
         return CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
     }
 
-    /// 把两行胶囊 + 来电红条画进一张全尺寸透明层。
+    /// 把胶囊（最多三行：日期 / 天气信号音量电量 / BMS）+ 来电红条画进一张全尺寸透明层。
     /// CGContext 在这里是 y 朝上的坐标系（与 TestImageSource 相同），
     /// 所以「离顶 xx」要换算成 baseline = 高 - 顶距 - 上伸。
     /// 设置全关、又没来电时返回一张全透明层（不是 nil），
@@ -546,6 +572,14 @@ enum HUDRenderer {
             row2.append(.text(snap.batteryLevel < 0 ? "--%" : "\(Int(snap.batteryLevel * 100))%",
                               isLowBattery ? red : white))
         }
+        // 第三行：ANT BMS（只在开了 BMS 显示、又有新鲜数据时画）。
+        var row3: [Segment] = []
+        if settings.showBMS, let bms = snap.bms {
+            let text = String(format: "%.1fV %.1fA %.0fW %.0f%% %d°",
+                              bms.voltage, bms.current, bms.power, bms.soc, bms.maxTemp)
+            row3 = [.icon(.bolt), .text(text, white)]
+        }
+
         // ---- 量每段宽度 ----
         // 段间间距：图标后面跟文字是“一组”（小间距），其余都是组间距。
         func isIcon(_ seg: Segment) -> Bool {
@@ -576,7 +610,7 @@ enum HUDRenderer {
         }
 
         // 只画非空的行；行数决定胶囊高度（一行就矮一点）。
-        let measuredRows = [measure(row1), measure(row2)].filter { !$0.items.isEmpty }
+        let measuredRows = [measure(row1), measure(row2), measure(row3)].filter { !$0.items.isEmpty }
         // 全关了、又没来电：返回全透明层（旧胶囊随之消失）。
         if measuredRows.isEmpty && !snap.calling {
             return context.makeImage()
@@ -722,6 +756,8 @@ enum HUDRenderer {
             context.fillPath()
         case .weather(let code):
             drawWeather(code: code, in: rect, context: context)
+        case .bolt:
+            drawBolt(in: rect, context: context)
         case .speaker:
             // 喇叭：左边小方块 + 右边锥形 + 两道声波弧
             let bx = rect.minX + rect.width * 0.08
