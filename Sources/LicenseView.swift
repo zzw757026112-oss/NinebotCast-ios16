@@ -84,7 +84,10 @@ struct LicenseView: View {
         let status = LicenseManager.activate(code: code)
         switch status {
         case .valid(let expiry):
-            // 激活成功：门一开就进主界面，不用再看这页
+            // 激活成功：门一开就进主界面，不用再看这页。
+            // 立刻把码发给录屏扩展（它自己读不到 App 的钥匙串，
+            // 靠 LicenseRelay 中继；2 秒重发会接上）。
+            LicenseRelay.postNow()
             gate.refresh()
             if let expiry {
                 message = "已激活，有效期至 \(LicenseManager.displayDate(expiry))"

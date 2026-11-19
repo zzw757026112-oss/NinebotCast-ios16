@@ -26,19 +26,41 @@ final class SampleHandler: RPBroadcastSampleHandler {
         // 音乐 + 音量接力：App 发 Darwin 通知告诉扩展正在放的歌和
         // 手机音量（扩展自己读不到），越早订阅越好。
         HUDDataRelay.startObserving()
+        // 授权码接力：App 发 Darwin 通知把授权码告诉扩展（钥匙串
+        // App 与扩展默认访问组不同，App 存的码扩展读不到；扩展收
+        // 到就存进自己的钥匙串），越早订阅越好。
+        LicenseRelay.startObserving()
     }
 
+    /// 扩展结束标志：broadcastStarted 里等授权码时如果用户中途
+    /// 停了直播，3 秒后的复查就不该再启动推流。
+    private var broadcastEnded = false
+
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
-        // 镜像也要授权：没激活就不推流（钥匙串 App 与扩展共享，App 里激活一次即可）
-        guard LicenseManager.currentStatus().isValid else {
-            log.info("mirror 未激活，拒绝推流")
-            let error = NSError(domain: "com.corpsezhao.ninebotcast.license", code: 1,
-                                userInfo: [NSLocalizedDescriptionKey: "Ninebot Pro+ 未激活，请先在 App 内输入授权码"])
-            finishBroadcastWithError(error)
+        broadcastEnded = false
+        // 镜像也要授权。先查扩展自己的钥匙串（LicenseRelay 收到
+        // App 发来的码就会存进来，之前成功镜像过就直接有码）。
+        if LicenseManager.currentStatus().isValid {
+            log.info("mirror broadcast started")
+            caster.start()
             return
         }
-        log.info("mirror broadcast started")
-        caster.start()
+        // 没码：可能是 App 刚激活、码还没通过中继发过来。App 每
+        // 2 秒重发一次，等 3 秒再查一次；收到了就启动，3 秒后还
+        // 没有才拒绝（这时 App 很大概率没在跑，或根本没激活）。
+        log.info("mirror 未激活，等 3 秒再查（等 App 中继授权码）")
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 3.0) { [weak self] in
+            guard let self, !self.broadcastEnded else { return }
+            if LicenseManager.currentStatus().isValid {
+                self.log.info("mirror broadcast started (after license relay)")
+                self.caster.start()
+            } else {
+                self.log.info("mirror 未激活，拒绝推流")
+                let error = NSError(domain: "com.corpsezhao.ninebotcast.license", code: 1,
+                                    userInfo: [NSLocalizedDescriptionKey: "Ninebot Pro+ 未激活，请先在 App 内输入授权码"])
+                self.finishBroadcastWithError(error)
+            }
+        }
     }
 
     override func broadcastPaused() {
@@ -50,6 +72,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
     }
 
     override func broadcastFinished() {
+        broadcastEnded = true
         log.info("mirror broadcast finished")
         caster.stop()
     }

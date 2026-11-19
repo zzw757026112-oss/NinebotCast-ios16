@@ -20,6 +20,10 @@ struct MainView: View {
     @StateObject private var vehicleBLE = VehicleBLE()
     @Environment(\.colorScheme) private var scheme
 
+    // 授权门（App 持有）：授权卡片显示状态、更换授权码用。
+    @ObservedObject var licenseGate: LicenseGate
+    @State private var showLicenseSheet = false
+
     // 设置持久化：下次打开不用重填
     @AppStorage("nbc.host") private var host = ""
     @AppStorage("nbc.preset") private var presetIndex = 0
@@ -85,6 +89,7 @@ struct MainView: View {
                     mirrorCard
                     vehicleCard
                     hudCard
+                    licenseCard
                     metricsCard
                     diagCard
                     footer
@@ -96,6 +101,18 @@ struct MainView: View {
         }
         .overlay(alignment: .bottom) { actionBar }
         .sheet(isPresented: $showImagePreview) { imagePreviewSheet }
+        .sheet(isPresented: $showLicenseSheet) {
+            NavigationStack {
+                LicenseView(gate: licenseGate)
+                    .navigationTitle("授权码")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("完成") { showLicenseSheet = false }
+                        }
+                    }
+            }
+        }
         .sheet(isPresented: $showTools) { toolsSheet }
         .onAppear {
             localIP = LanScanner.localIPv4() ?? "未连 Wi-Fi"
@@ -613,6 +630,37 @@ struct MainView: View {
         .onChange(of: hudShowVehicle) { _ in postHUDSettings() }
         .onChange(of: hudPosition) { _ in postHUDSettings() }
         .onChange(of: hudFontSize) { _ in postHUDSettings() }
+    }
+
+    // MARK: - 授权（状态 + 更换授权码）
+    // 1.1.3 的教训：App 里激活了，扩展却读不到码（钥匙串访问组
+    // 不同），主界面又没有输入框，用户卡死。现在码靠 LicenseRelay
+    // 中继给扩展；这里常驻一个入口，换码、查有效期都在这。
+    private var licenseCard: some View {
+        card("授权", icon: "key.fill") {
+            HStack(spacing: 6) {
+                Image(systemName: licenseGate.isActivated ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                    .font(.system(size: 12))
+                Text(licenseGate.isActivated
+                     ? (licenseGate.expiryText.map { "已激活，有效期至 \($0)" } ?? "已激活（永久）")
+                     : "未激活")
+                    .font(.caption)
+                Spacer()
+                Button("更换授权码") {
+                    showLicenseSheet = true
+                }
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(accent))
+                .foregroundColor(.white)
+                .buttonStyle(.plain)
+            }
+            Text("授权码由作者提供；换码后重新开一次镜像就生效。")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
     }
 
     /// 车辆蓝牙：直连滑板车（Max G2 / F2 系，Enc2），读速度/电压/电流/

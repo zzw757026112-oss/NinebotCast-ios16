@@ -24,6 +24,9 @@ struct NinebotProPlusApp: App {
         // 到音乐、outputVolume 是陈旧值，镜像时音乐行不显示、音量
         // 卡住不动）。值变了立刻发，另外每 2 秒重发。
         HUDDataRelay.startPosting()
+        // 授权码接力：App 把授权码发给录屏扩展（扩展自己读不到
+        // App 的钥匙串，靠 Darwin 通知中继；每 2 秒重发一次）。
+        LicenseRelay.startPosting()
         // 下面这行必须有：HUDData 是懒加载的，镜像时主 App 进程自己
         // 不画帧、永远不会创建它，tick() 也就不会跑，中继没数据可发。
         // 启动时就建一份，让它的每秒 tick 在后台保活里一直跑。
@@ -35,7 +38,7 @@ struct NinebotProPlusApp: App {
         WindowGroup {
             Group {
                 if licenseGate.isActivated {
-                    MainView()
+                    MainView(licenseGate: licenseGate)
                 } else {
                     LicenseView(gate: licenseGate)
                 }
