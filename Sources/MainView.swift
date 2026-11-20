@@ -44,7 +44,7 @@ struct MainView: View {
     @AppStorage("nbc.hud.position") private var hudPosition = 0 // 0 右下 1 左下 2 左上 3 右上
     @AppStorage("nbc.hud.fontSize") private var hudFontSize = 1 // 0 小 1 中 2 大
     @AppStorage("nbc.keepAlive") private var keepAlive = true
-    @AppStorage("nbc.speedLimit") private var speedLimit = 60 // 限速 km/h：40/50/60/70/80
+    @AppStorage("nbc.speedLimit") private var speedLimit = 60 // 限速 km/h：35...80，每 5 一档，默认 60
     @AppStorage("nbc.speedAlert") private var speedAlert = true
     @State private var gopIndex = 25            // 关键帧间隔（帧）
     @State private var fpsIndex = 20
@@ -956,21 +956,14 @@ struct MainView: View {
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
-            HStack {
-                Text("限速").font(.subheadline)
-                Spacer()
-                Picker("", selection: $speedLimit) {
-                    Text("40").tag(40)
-                    Text("50").tag(50)
-                    Text("60").tag(60)
-                    Text("70").tag(70)
-                    Text("80").tag(80)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 200)
+            Stepper(value: $speedLimit, in: 35...80, step: 5) {
+                Text("限速 \(speedLimit) km/h").font(.subheadline)
             }
-            Toggle("超速提醒（震动 + 提示音，仪表 HUD 变红）", isOn: $speedAlert)
+            Toggle("超速提醒（震动 + 提示音 + 手机通知，仪表 HUD 变红）", isOn: $speedAlert)
                 .font(.subheadline)
+                .onChange(of: speedAlert) { on in
+                    if on { OverspeedNotifier.requestAuthorization() }
+                }
             if !ride.rides.isEmpty {
                 DisclosureGroup(isExpanded: $showRideHistory) {
                     List {

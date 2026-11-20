@@ -3,6 +3,7 @@ import Combine
 import CoreLocation
 import Foundation
 import UIKit
+import UserNotifications
 
 /// 骑行记录（GPS，不接车）：1.2.9 新增。
 ///
@@ -48,6 +49,44 @@ private struct RideProgress: Codable {
     var lastTime: TimeInterval
 }
 
+/// 超速本地通知（1.3.8，应用内逻辑，不走 Darwin 接力、不碰扩展）：
+/// 上升沿发一条系统通知，identifier 固定，只留最新一条，不堆叠。
+/// 前台也要弹横幅，所以要挂 delegate（willPresent 返回 [.banner, .sound]，
+/// 否则 App 在前台时通知只进通知中心不弹出来——骑行时手机常在前台导航）。
+/// delegate 是 weak 引用，用静态属性强持有，别让它被释放。
+enum OverspeedNotifier {
+    private static let delegate = OverspeedNotificationDelegate()
+
+    /// 启动时调一次：挂 delegate + 请求通知授权（已决定过就是空操作，不重复弹）。
+    static func setup() {
+        UNUserNotificationCenter.current().delegate = delegate
+        requestAuthorization()
+    }
+
+    /// 超速提醒 Toggle 打开时调一次（options 只取 alert + sound）。
+    static func requestAuthorization() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    }
+
+    /// 发超速通知（立即触发，identifier 固定 "nbc.overspeed"）。
+    static func post() {
+        let content = UNMutableNotificationContent()
+        content.title = "超速提醒"
+        content.body = "您已超速行驶，请注意安全"
+        content.sound = .default
+        let request = UNNotificationRequest(identifier: "nbc.overspeed", content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+    }
+}
+
+private final class OverspeedNotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .sound])
+    }
+}
+
 final class RideTracker: NSObject, ObservableObject, CLLocationManagerDelegate {
     static let shared = RideTracker()
 
@@ -77,10 +116,11 @@ final class RideTracker: NSObject, ObservableObject, CLLocationManagerDelegate {
     private static let maxPoints = 10000
     private static let maxHistory = 50
 
-    /// 限速（km/h）：MainView 的 Picker 写，默认 60。
+    /// 限速（km/h）：MainView 的 Stepper 写，默认 60；夹到 35...80 防御。
     private static var speedLimit: Int {
-        UserDefaults.standard.object(forKey: "nbc.speedLimit") == nil
+        let value = UserDefaults.standard.object(forKey: "nbc.speedLimit") == nil
             ? 60 : UserDefaults.standard.integer(forKey: "nbc.speedLimit")
+        return min(max(value, 35), 80)
     }
 
     /// 超速提醒开关：MainView 的 Toggle 写，默认开。
@@ -248,6 +288,7 @@ final class RideTracker: NSObject, ObservableObject, CLLocationManagerDelegate {
             overspeed = true
             feedback.notificationOccurred(.warning)
             AudioServicesPlaySystemSound(1005)
+            OverspeedNotifier.post()
             Diag.log("超速提醒：\(Int(speedKmh)) km/h，限速 \(limit)")
         } else if !over, wasOverspeed {
             overspeed = false

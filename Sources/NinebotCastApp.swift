@@ -48,6 +48,9 @@ struct NinebotProPlusApp: App {
         // 骑行记录（1.2.9）：建一份 RideTracker，App 被杀时进行中的
         // 骑行 30 分钟内能续上（current-ride.json）。
         _ = RideTracker.shared
+        // 超速提醒通知（1.3.8）：挂前台横幅 delegate + 请求通知授权
+        //（已决定过就是空操作，不会重复弹；用户可能早就开着提醒）。
+        OverspeedNotifier.setup()
         // 下面这行必须有：HUDData 是懒加载的，镜像时主 App 进程自己
         // 不画帧、永远不会创建它，tick() 也就不会跑，中继没数据可发。
         // 启动时就建一份，让它的每秒 tick 在后台保活里一直跑。
