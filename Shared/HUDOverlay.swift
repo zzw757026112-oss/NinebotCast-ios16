@@ -16,7 +16,8 @@ import UIKit
 /// 上行：时钟图标 + 日期时间（11月18日 周三 21:07）
 /// 下行：天气图标 + 温度、联网方式（WiFi 图标 / 5G / 4G）、
 ///       音量、电池图标 + 电量百分比。
-/// 有 ANT BMS 数据时再加一行：闪电图标 + 电压/电流/功率/SOC/最高温（1.2.0）。
+/// 有 ANT BMS 数据时右上角车辆表盘下面再加一块单独面板：三排、每排两个
+///（电压/电流、功率/电量、最高温/压差），宽度跟那个表盘对齐（朋友版 105）。
 /// 电量低于 20% 时电池图标和百分比变红。
 /// 胶囊：半透明黑底 + 细亮边、圆角，字和图标同一行垂直居中对齐。
 /// 来电还是左下角红色小条，不变。
@@ -505,7 +506,7 @@ enum HUDRenderer {
         return CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
     }
 
-    /// 把胶囊（最多四行：日期 / 天气信号音量电量 / BMS 两行）+ 来电红条画进一张全尺寸透明层。
+    /// 把胶囊（最多两行：日期 / 天气信号音量电量）+ 右上角 BMS 面板 + 来电红条画进一张全尺寸透明层。
     /// CGContext 在这里是 y 朝上的坐标系（与 TestImageSource 相同），
     /// 所以「离顶 xx」要换算成 baseline = 高 - 顶距 - 上伸。
     /// 设置全关、又没来电时返回一张全透明层（不是 nil），
@@ -572,19 +573,17 @@ enum HUDRenderer {
             row2.append(.text(snap.batteryLevel < 0 ? "--%" : "\(Int(snap.batteryLevel * 100))%",
                               isLowBattery ? red : white))
         }
-        // 第三、四行：ANT BMS（只在开了 BMS 显示、又有新鲜数据时画）。
-        // 1.2.4：每个数值前面写名称，每行三个——第三行电压/电流/功率，
-        // 第四行电量/最高温/压差（朋友要的格式）。
-        var row3: [Segment] = []
-        var row4: [Segment] = []
+        // ANT BMS 单独一块面板（朋友版 105）：放在右上角车辆自带表盘下面，
+        // 宽度跟那个表盘对齐；三排、每排两个——电压/电流、功率/电量、最高温/压差。
+        // 不再放进底下那个胶囊。
+        var bmsItems: [String] = []
         if settings.showBMS, let bms = snap.bms {
-            row3 = [.icon(.bolt),
-                    .text(String(format: "电压 %.2fV", bms.voltage), white),
-                    .text(String(format: "电流 %.1fA", bms.current), white),
-                    .text(String(format: "功率 %.0fW", bms.power), white)]
-            row4 = [.text(String(format: "电量 %.1f%%", bms.soc), white),
-                    .text(String(format: "最高温 %d°", bms.maxTemp), white),
-                    .text(String(format: "压差 %dmV", bms.delta), white)]
+            bmsItems = [String(format: "电压 %.2fV", bms.voltage),
+                        String(format: "电流 %.1fA", bms.current),
+                        String(format: "功率 %.0fW", bms.power),
+                        String(format: "电量 %.1f%%", bms.soc),
+                        String(format: "最高温 %d°", bms.maxTemp),
+                        String(format: "压差 %dmV", bms.delta)]
         }
 
         // ---- 量每段宽度 ----
@@ -616,24 +615,30 @@ enum HUDRenderer {
             return (total, items)
         }
 
-        // 只画非空的行；行数决定胶囊高度（一行就矮一点）。
-        let measuredRows = [measure(row1), measure(row2), measure(row3), measure(row4)].filter { !$0.items.isEmpty }
-        // 全关了、又没来电：返回全透明层（旧胶囊随之消失）。
-        if measuredRows.isEmpty && !snap.calling {
+        // 只画非空的行；行数决定胶囊高度（一行就矮一点）。BMS 不再进胶囊。
+        let measuredRows = [measure(row1), measure(row2)].filter { !$0.items.isEmpty }
+        // 全关了、又没 BMS、又没来电：返回全透明层（旧胶囊随之消失）。
+        if measuredRows.isEmpty && bmsItems.isEmpty && !snap.calling {
             return context.makeImage()
         }
 
         let contentWidth = measuredRows.map { $0.width }.max() ?? 0
-        let pillW = contentWidth + padX * 2
+        // 朋友版 105：有 BMS 面板时，胶囊宽度跟它对齐（281，左沿 375），上下两块一样宽。
+        let bmsPanelW = CGFloat(281) * sx
+        let bmsPanelX = CGFloat(375) * sx
+        var pillW = contentWidth + padX * 2
+        if !bmsItems.isEmpty {
+            pillW = max(pillW, bmsPanelW)
+        }
         let rowCount = measuredRows.count
         let pillH = padY * 2 + rowHeight * CGFloat(rowCount) + rowGap * CGFloat(max(0, rowCount - 1))
 
-        // 胶囊锚点按设置来（y 朝上坐标系）。
+        // 胶囊锚点按设置来（y 朝上坐标系）。有 BMS 面板且在右侧时，左沿跟 BMS 面板对齐。
         let pillX: CGFloat
         let pillY: CGFloat
         switch settings.position {
         case .bottomRight:
-            pillX = (refWidth - marginRightRef) * sx - pillW
+            pillX = (!bmsItems.isEmpty && pillW <= bmsPanelW + 0.5) ? bmsPanelX : (refWidth - marginRightRef) * sx - pillW
             pillY = marginBottomRef * sy
         case .bottomLeft:
             pillX = marginLeftRef * sx
@@ -642,7 +647,7 @@ enum HUDRenderer {
             pillX = marginLeftRef * sx
             pillY = h - marginTopRef * sy - pillH
         case .topRight:
-            pillX = (refWidth - marginRightRef) * sx - pillW
+            pillX = (!bmsItems.isEmpty && pillW <= bmsPanelW + 0.5) ? bmsPanelX : (refWidth - marginRightRef) * sx - pillW
             pillY = h - marginTopRef * sy - pillH
         }
 
@@ -703,6 +708,50 @@ enum HUDRenderer {
             drawRow(row, rowTopFromTop: rowTop)
         }
         } // if !measuredRows.isEmpty
+
+        // ---- ANT BMS 单独面板（朋友版 105）：右上角车辆自带表盘下面，宽度跟它对齐 ----
+        // 上下间隙跟底下胶囊一致：面板在表盘底沿和胶囊顶之间垂直居中，两边间隙相等。
+        // 位置是按仪表照片量的（848×480 参考系）：表盘左沿 375、宽 281、底沿 214。
+        if !bmsItems.isEmpty {
+            let bmsLeft = bmsPanelX
+            let bmsW = bmsPanelW
+            let bmsH = padY * 2 + rowHeight * 3 + rowGap * 2
+            let bmsTopFromTop: CGFloat
+            if !measuredRows.isEmpty {
+                let pBottom = CGFloat(214) * sy
+                let capsuleTop = h - (pillY + pillH)
+                bmsTopFromTop = pBottom + (capsuleTop - pBottom - bmsH) / 2
+            } else {
+                bmsTopFromTop = CGFloat(222) * sy
+            }
+            let bmsY = h - bmsTopFromTop - bmsH
+            let bmsPanel = CGRect(x: bmsLeft, y: bmsY, width: bmsW, height: bmsH)
+            context.setShadow(offset: .zero, blur: 0, color: nil)
+            context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: panelAlpha))
+            context.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: panelBorderAlpha))
+            context.setLineWidth(max(1, 1 * sx))
+            context.addPath(CGPath(roundedRect: bmsPanel,
+                                   cornerWidth: panelCornerRef * sx,
+                                   cornerHeight: panelCornerRef * sy,
+                                   transform: nil))
+            context.drawPath(using: .fillStroke)
+            // 两列等宽；每排左列在左半，右列在右半。
+            let shadow2 = CGColor(red: 0, green: 0, blue: 0, alpha: 0.85)
+            context.setShadow(offset: CGSize(width: 0, height: -2), blur: 3, color: shadow2)
+            let colW = (bmsW - padX * 2) / 2
+            for r in 0..<3 {
+                let rowTop = bmsTopFromTop + padY + CGFloat(r) * (rowHeight + rowGap)
+                let baseline = h - rowTop - ascent
+                for c in 0..<2 {
+                    let idx = r * 2 + c
+                    guard idx < bmsItems.count else { continue }
+                    let line = ctLine(bmsItems[idx], font: font, color: white)
+                    let x = bmsLeft + padX + CGFloat(c) * colW
+                    context.textPosition = CGPoint(x: x, y: baseline)
+                    CTLineDraw(line, context)
+                }
+            }
+        }
 
         // 来电：左下角红色圆角条，半透明红底 + 细亮边（不动）。
         if snap.calling {
