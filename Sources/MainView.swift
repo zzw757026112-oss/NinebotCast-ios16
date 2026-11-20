@@ -18,8 +18,6 @@ enum AppVersion {
 struct MainView: View {
     @StateObject private var engine = CastEngine()
     @StateObject private var antbms = ANTBMS.shared
-    @StateObject private var elk = ELKStrip.shared
-    @StateObject private var ride = RideTracker.shared
     @Environment(\.colorScheme) private var scheme
 
     // 授权门（App 持有）：授权卡片显示状态、更换授权码用。
@@ -33,7 +31,6 @@ struct MainView: View {
     @AppStorage("nbc.dupKey") private var duplicateKeyframes = false
     @AppStorage("nbc.chunk1400") private var chunk1400 = true
     @AppStorage("nbc.mirrorRotation") private var mirrorRotationIndex = 0 // 0 自动 1 90° 2 180° 3 270°
-    @AppStorage("nbc.displayMode") private var displayMode = 0 // 显示模式：0 铺满（裁两边，默认），1 完整（上下黑边），2 拉伸（整幅硬拉到仪表，横向略压扁）
     // HUD 自定义：显示哪些项、放哪个角、字号多大（发给录屏扩展）
     @AppStorage("nbc.hud.showDate") private var hudShowDate = true
     @AppStorage("nbc.hud.showWeather") private var hudShowWeather = true
@@ -44,8 +41,6 @@ struct MainView: View {
     @AppStorage("nbc.hud.position") private var hudPosition = 0 // 0 右下 1 左下 2 左上 3 右上
     @AppStorage("nbc.hud.fontSize") private var hudFontSize = 1 // 0 小 1 中 2 大
     @AppStorage("nbc.keepAlive") private var keepAlive = true
-    @AppStorage("nbc.speedLimit") private var speedLimit = 60 // 限速 km/h：35...80，每 5 一档，默认 60
-    @AppStorage("nbc.speedAlert") private var speedAlert = true
     @State private var gopIndex = 25            // 关键帧间隔（帧）
     @State private var fpsIndex = 20
     @State private var bitrateIndex = 1200      // kbps
@@ -54,10 +49,6 @@ struct MainView: View {
     @State private var showTools = false
     @State private var showAdvanced = false
     @State private var showDiag = false
-    @State private var showRideHistory = false
-    @State private var elkBrightnessDraft: Double = 100 // 灯带亮度草稿：松手才发
-    @State private var elkPickerColor: Color = .white // 灯带自选色
-    @State private var elkColorFromPreset = false // 预设色块点的：不重复发颜色
     @State private var scanning = false
     @State private var tcpScanning = false
     @State private var probing = false
@@ -98,8 +89,6 @@ struct MainView: View {
                     mirrorCard
                     hudCard
                     bmsCard
-                    elkCard
-                    rideCard
                     licenseCard
                     metricsCard
                     diagCard
@@ -572,23 +561,9 @@ struct MainView: View {
             Text("方向默认自动跟随手机；自动转不正时手动选 90° 或 270°，下一帧就生效，不用重开镜像。")
                 .font(.caption2)
                 .foregroundColor(.secondary)
-            Picker("显示", selection: $displayMode) {
-                Text("铺满").tag(0)
-                Text("完整").tag(1)
-                Text("拉伸").tag(2)
-            }
-            .pickerStyle(.segmented)
-            Text("铺满：铺满全屏，左右各裁掉一点；完整：整幅画面都可见，上下留黑边；拉伸：整幅画面铺满仪表，横向略压扁。手机画面比仪表宽，铺满和不裁剪没法同时做到。下一帧就生效，不用重开镜像。")
-                .font(.caption2)
-                .foregroundColor(.secondary)
             Text("仪表右下角会叠加一个小胶囊：日期时间和天气、信号、电量，来电时左下角显示红色“来电”。位置和显示项可以在下面 HUD 设置里改。")
                 .font(.caption2)
                 .foregroundColor(.secondary)
-        }
-        .onChange(of: displayMode) { value in
-            // 模式一改就发给录屏扩展，下一帧就生效；图片源是静态 buffer，要重建
-            DisplayFitRelay.setMode(value)
-            engine.refreshDisplayFit()
         }
     }
 
@@ -673,9 +648,22 @@ struct MainView: View {
                 }
                 .font(.caption)
                 .foregroundColor(.secondary)
-                BMSDiagLineView(antbms: antbms)
+                Text("阶段：\(antbms.stage)　已发 \(antbms.pollCount) 次　收到 \(antbms.rxBytes) 字节\(antbms.notifyOn ? "　通知已开" : "")")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
                 if let info = antbms.lastFrameInfo {
                     Text(info)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                // 朋友版诊断：连的不是 ANT 设备时提示；FFE0 下全部特征列表。
+                if let note = antbms.selectionNote {
+                    Text(note)
+                        .font(.caption2)
+                        .foregroundColor(.orange)
+                }
+                if let chars = antbms.charInfo {
+                    Text("特征：\(chars)")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
@@ -712,291 +700,6 @@ struct MainView: View {
                 Text("只支持 ANT BMS（MAYI/JNFN）新格式 7E A1 帧；打开后自动连信号最强的一台，数据同时显示在仪表 HUD 第三行。")
                     .font(.caption2)
                     .foregroundColor(.secondary)
-            }
-        }
-    }
-
-    // MARK: - 七彩日行灯（车上的 LED 灯带，ELK-BLEDOB，1.3.0）
-    // duoCo Strip 同款控制器（服务 FFF0，9 字节 7E…EF 命令），
-    // 内容由 ELKStrip 的 @Published 驱动，不用 timer 轮询 UI。
-    // 注意：NinebotCastApp.swift 的 init 里还没像 ANTBMS 那样
-    // touch ELKStrip.shared——App 被系统杀掉后在后台拉起时，
-    // 灯的 BLE 会话恢复不了，要等 MainView 出现才重连。后台保活
-    // 开着时很少被杀，先这样；要补只用在 init 里加一行
-    // `_ = ELKStrip.shared`（同 ANTBMS 的写法）。
-    private var elkCard: some View {
-        card("七彩日行灯", icon: "lightbulb.fill") {
-            Toggle("启用七彩日行灯", isOn: $elk.isEnabled)
-                .font(.subheadline)
-            if elk.isEnabled {
-                HStack(spacing: 6) {
-                    Text(elk.isConnected ? "已连接" : (elk.isScanning ? "搜索中…" : "未连接"))
-                    if let name = elk.deviceName {
-                        Text(name)
-                    }
-                    if let rssi = elk.rssi {
-                        Text("\(rssi)dBm")
-                    }
-                    Spacer()
-                }
-                .font(.caption)
-                .foregroundColor(.secondary)
-                ELKDiagLineView(elk: elk)
-                if let err = elk.lastError {
-                    Text(err)
-                        .font(.caption2)
-                        .foregroundColor(.red)
-                }
-                HStack(spacing: 12) {
-                    Button {
-                        elk.turnOn()
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "lightbulb.fill")
-                                .font(.system(size: 13, weight: .bold))
-                            Text(elk.isOn ? "开着" : "开灯")
-                                .font(.subheadline.weight(.semibold))
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 11)
-                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(elk.isOn ? accent : Color.primary.opacity(0.08)))
-                        .foregroundColor(elk.isOn ? .white : .primary)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!elk.isConnected)
-                    Button {
-                        elk.turnOff()
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "lightbulb")
-                                .font(.system(size: 13, weight: .bold))
-                            Text("关灯")
-                                .font(.subheadline.weight(.semibold))
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 11)
-                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color.primary.opacity(0.08)))
-                        .foregroundColor(.primary)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!elk.isConnected)
-                }
-                // 7 个预设色：点一下就发颜色命令（灯关着时先开灯再变色）。
-                HStack(spacing: 10) {
-                    ForEach(Array(elkPresets.enumerated()), id: \.offset) { _, preset in
-                        Button {
-                            elkColorFromPreset = true
-                            elkPickerColor = preset.color
-                            elk.setColor(r: preset.r, g: preset.g, b: preset.b)
-                        } label: {
-                            Circle()
-                                .fill(preset.color)
-                                .frame(width: 30, height: 30)
-                                .overlay(
-                                    Circle()
-                                        .stroke(Color.primary.opacity(0.25), lineWidth: 1)
-                                )
-                                .overlay(
-                                    Circle()
-                                        .stroke(Color.white, lineWidth: 2)
-                                        .opacity(elk.colorR == preset.r && elk.colorG == preset.g && elk.colorB == preset.b ? 1 : 0)
-                                )
-                                .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(!elk.isConnected)
-                    }
-                }
-                ColorPicker("自选颜色", selection: $elkPickerColor)
-                    .font(.subheadline)
-                    .disabled(!elk.isConnected)
-                    .onChange(of: elkPickerColor) { color in
-                        if elkColorFromPreset {
-                            elkColorFromPreset = false
-                            return
-                        }
-                        let (r, g, b) = elkColorComponents(color)
-                        elk.setColor(r: r, g: g, b: b)
-                    }
-                HStack {
-                    Text("亮度 \(Int(elkBrightnessDraft))%")
-                        .font(.subheadline)
-                    Slider(value: $elkBrightnessDraft, in: 0...100, step: 1) { editing in
-                        // 松手再发：拖动一路狂发会把灯的命令队列堵满。
-                        if !editing {
-                            elk.setBrightness(Int(elkBrightnessDraft))
-                        }
-                    }
-                    .disabled(!elk.isConnected)
-                    Button("白色") {
-                        elk.setWhite()
-                        elkBrightnessDraft = Double(elk.brightness)
-                    }
-                    .font(.subheadline.weight(.semibold))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 7)
-                    .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(Color.primary.opacity(0.08)))
-                    .buttonStyle(.plain)
-                    .disabled(!elk.isConnected)
-                }
-                HStack(spacing: 8) {
-                    ForEach(Array(elkEffects.enumerated()), id: \.offset) { _, effect in
-                        Button(effect.name) {
-                            elk.setEffect(effect.id, name: effect.name)
-                        }
-                        .font(.caption.weight(.semibold))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 7)
-                        .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .fill(elk.lastEffect == effect.name ? accent.opacity(0.18) : Color.primary.opacity(0.06)))
-                        .foregroundColor(elk.lastEffect == effect.name ? accent : .primary)
-                        .buttonStyle(.plain)
-                        .disabled(!elk.isConnected)
-                    }
-                }
-                Text("连不上时：先退出 duoCo（一个灯一次只能连一个 App），再等它重连；卡片上的名字和信号帮你确认连的是自己车上的灯——开关一按，看车灯变不变就知道。")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            } else {
-                Text("车上的日行灯带（ELK-BLEDOB），duoCo Strip 同款控制器；打开后自动连信号最强的一台（邻居家同型号也在广播，弱信号那台不是车上的灯）。")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
-        }
-        .onAppear {
-            elkBrightnessDraft = Double(elk.brightness)
-            elkPickerColor = Color(red: Double(elk.colorR) / 255,
-                                   green: Double(elk.colorG) / 255,
-                                   blue: Double(elk.colorB) / 255)
-        }
-    }
-
-    /// 预设色块（红/橙/黄/绿/青/蓝/紫）。
-    private var elkPresets: [(name: String, r: UInt8, g: UInt8, b: UInt8, color: Color)] {
-        [
-            ("红", 255, 0, 0, .red),
-            ("橙", 255, 165, 0, .orange),
-            ("黄", 255, 255, 0, .yellow),
-            ("绿", 0, 255, 0, .green),
-            ("青", 0, 255, 255, .cyan),
-            ("蓝", 0, 0, 255, .blue),
-            ("紫", 128, 0, 255, .purple),
-        ]
-    }
-
-    /// 灯效按钮（id 来自 elkbledom definitions.json 的 EFFECTS 枚举，
-    /// 已核实；命令是 7E 07 03 <id> 03 FF FF 00 EF）。
-    private var elkEffects: [(name: String, id: Int)] {
-        [
-            ("七彩跳变", ELKStrip.effectJump7),
-            ("七彩渐变", ELKStrip.effectFade7),
-            ("红绿蓝跳变", ELKStrip.effectJumpRGB),
-        ]
-    }
-
-    /// 从 SwiftUI Color 取 0–255 的 RGB（ColorPicker 回调用）。
-    private func elkColorComponents(_ color: Color) -> (UInt8, UInt8, UInt8) {
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a)
-        return (UInt8(max(0, min(255, Int((r * 255).rounded())))),
-                UInt8(max(0, min(255, Int((g * 255).rounded())))),
-                UInt8(max(0, min(255, Int((b * 255).rounded())))))
-    }
-
-    // MARK: - 骑行记录（GPS，不接车，1.2.9）
-    // 开始/结束手动点；骑行中每 10 米记一个点，算里程、时长、
-    // 当前速度和最高速度。超速提醒在下面设限速；历史存在本地。
-    private var rideCard: some View {
-        card("骑行记录", icon: "map") {
-            HStack(spacing: 12) {
-                Button {
-                    if ride.riding { ride.stop() } else { ride.start() }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: ride.riding ? "stop.fill" : "play.fill")
-                            .font(.system(size: 13, weight: .bold))
-                        Text(ride.riding ? "结束骑行" : "开始骑行")
-                            .font(.subheadline.weight(.semibold))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 11)
-                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(ride.riding ? Color.red : accent))
-                    .foregroundColor(.white)
-                }
-                .buttonStyle(.plain)
-                if ride.overspeed {
-                    Text("超速！")
-                        .font(.headline)
-                        .foregroundColor(.red)
-                }
-            }
-            if ride.riding {
-                HStack(spacing: 0) {
-                    metric(formatClock(ride.elapsedSec), "时长")
-                    dividerView()
-                    metric(formatDistance(ride.distanceM), "里程")
-                    dividerView()
-                    metric("\(Int(ride.currentSpeedKmh))", "当前 km/h")
-                    dividerView()
-                    metric("\(Int(ride.maxSpeedKmh))", "最高 km/h")
-                }
-                Text("退后台也继续记（定位后台模式已开）。")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            } else if ride.locationDenied {
-                Text("定位未授权：去系统设置里打开 Ninebot Pro+ 的定位，骑行记录和天气都要用它。")
-                    .font(.caption2)
-                    .foregroundColor(.red)
-            } else {
-                Text("用手机 GPS 记骑行：里程、时长、最高速度和平均速度，不用接车。App 被杀后 30 分钟内重开能续上。")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
-            Stepper(value: $speedLimit, in: 35...80, step: 5) {
-                Text("限速 \(speedLimit) km/h").font(.subheadline)
-            }
-            Toggle("超速提醒（震动 + 提示音 + 手机通知，仪表 HUD 变红）", isOn: $speedAlert)
-                .font(.subheadline)
-                .onChange(of: speedAlert) { on in
-                    if on { OverspeedNotifier.requestAuthorization() }
-                }
-            if !ride.rides.isEmpty {
-                DisclosureGroup(isExpanded: $showRideHistory) {
-                    List {
-                        ForEach(ride.rides) { r in
-                            HStack {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(r.startTime, format: .dateTime.month().day().hour().minute())
-                                        .font(.subheadline.weight(.medium))
-                                    Text("\(formatDistance(r.distanceM)) · \(formatDuration(r.durationSec))")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                                Spacer()
-                                VStack(alignment: .trailing, spacing: 3) {
-                                    Text("最高 \(Int(r.maxSpeedKmh)) km/h")
-                                        .font(.caption)
-                                    Text("平均 \(Int(r.avgSpeedKmh)) km/h")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                        }
-                        .onDelete { offsets in
-                            for i in offsets { ride.deleteRide(id: ride.rides[i].id) }
-                        }
-                    }
-                    .listStyle(.plain)
-                    .frame(height: CGFloat(min(ride.rides.count, 5)) * 56 + 8)
-                } label: {
-                    Text("历史记录（\(ride.rides.count) 次）")
-                        .font(.caption.weight(.medium))
-                        .foregroundColor(.secondary)
-                }
             }
         }
     }
@@ -1069,9 +772,42 @@ struct MainView: View {
     // MARK: - 指标
     private var metricsCard: some View {
         card("运行状态", icon: "waveform.path.ecg") {
-            // 每秒都在变的那几行关进独立子视图，只订阅 CastEngine，
-            // 再怎么变也只重画这个小卡片，不重算整个 MainView（1.3.9）。
-            EngineLiveStatsView(engine: engine, accent: accent)
+            HStack(spacing: 0) {
+                metric(String(engine.sentFrames), "帧已发送")
+                divider
+                metric(String(engine.sentPackets), "包已发送")
+                divider
+                metric(engine.rtcpPongCount > 0 ? "\(max(0, engine.lastRTTMs))" : "—",
+                       "往返 ms",
+                       highlight: engine.rtcpPongCount > 0)
+            }
+            if engine.isRunning {
+                HStack(spacing: 0) {
+                    metric("\(engine.measuredFps)", "实测 fps")
+                    divider
+                    metric("\(engine.avgFrameKB)", "帧均 KB")
+                    divider
+                    metric("\(engine.backlogPackets)", "待发积压",
+                           warn: engine.backlogPackets > 120)
+                }
+            }
+            HStack(spacing: 6) {
+                Image(systemName: engine.rtcpPongCount > 0 ? "checkmark.circle.fill" : "clock")
+                    .font(.system(size: 12))
+                Text(engine.rtcpPongCount > 0
+                     ? (engine.droppedFrames > 0
+                        ? "仪表在线 · 已回应 \(engine.rtcpPongCount) 次心跳 · 主动丢 \(engine.droppedFrames) 帧"
+                        : "仪表在线，已回应 \(engine.rtcpPongCount) 次心跳")
+                     : "等仪表回应心跳（2 秒以上）")
+                    .font(.caption)
+            }
+            .foregroundColor(engine.rtcpPongCount > 0 ? .green : .secondary)
+
+            if !engine.dashboardReport.isEmpty {
+                Text(engine.dashboardReport)
+                    .font(.caption)
+                    .foregroundColor(accent)
+            }
 
             Toggle("后台保活（退后台继续跑）", isOn: $keepAlive)
                 .font(.subheadline)
@@ -1165,29 +901,28 @@ struct MainView: View {
         }
     }
 
+    private func metric(_ value: String, _ label: String,
+                        highlight: Bool = false, warn: Bool = false) -> some View {
+        VStack(spacing: 3) {
+            Text(value)
+                .font(.system(size: 22, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundColor(warn ? Color.orange : (highlight ? Color.green : Color.primary))
+            Text(label)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var divider: some View {
+        Rectangle()
+            .fill(Color.primary.opacity(0.07))
+            .frame(width: 1, height: 26)
+    }
+
     private var fpsLabel: String { fpsIndex == 0 ? "预设帧率" : "\(fpsIndex)fps" }
     private var bitrateLabel: String { bitrateIndex == 0 ? "预设码率" : "\(bitrateIndex)kbps" }
-
-    /// 骑行时长（中文）：12秒 / 12分34秒 / 1小时23分
-    private func formatDuration(_ sec: Int) -> String {
-        let h = sec / 3600, m = (sec % 3600) / 60, s = sec % 60
-        if h > 0 { return String(format: "%d小时%02d分", h, m) }
-        if m > 0 { return String(format: "%d分%02d秒", m, s) }
-        return "\(s)秒"
-    }
-
-    /// 骑行时长（紧凑）：12:34 / 1:23:45（实时统计行用）
-    private func formatClock(_ sec: Int) -> String {
-        let h = sec / 3600, m = (sec % 3600) / 60, s = sec % 60
-        if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
-        return String(format: "%d:%02d", m, s)
-    }
-
-    /// 里程：850 m / 12.3 km
-    private func formatDistance(_ meters: Double) -> String {
-        if meters < 1000 { return String(format: "%.0f m", meters) }
-        return String(format: "%.1f km", meters / 1000)
-    }
 
     /// 画质档位 = 帧率 + 码率 + GOP 的组合，一键设定
     private func applyQuality(_ value: Int) {
@@ -1433,8 +1168,7 @@ struct MainView: View {
         case 270: ci = ci.oriented(.left)
         default: break
         }
-        ci = FrameRenderer.aspectFillTransform(ci, destWidth: width, destHeight: height,
-                                               mode: UserDefaults.standard.integer(forKey: "nbc.displayMode"))
+        ci = FrameRenderer.aspectFillTransform(ci, destWidth: width, destHeight: height)
         let rect = CGRect(x: 0, y: 0, width: width, height: height)
         if let cg = previewContext.createCGImage(ci, from: rect) {
             return UIImage(cgImage: cg)
@@ -1568,105 +1302,4 @@ struct BroadcastPickerButton: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: RPSystemBroadcastPickerView, context: Context) {}
-}
-
-// MARK: - 实时小视图（1.3.9，修滑动卡顿）
-// MainView 自己持有 @StateObject，body 里直接读每秒都在变的量会逼整个
-// body 每秒重算。把高频刷新的行关进各自的独立 View，它们自己订阅对象，
-// 只重画自己，MainView 不再直接读这些量。
-
-/// 指标小格：原来是 MainView 的 private 成员，rideCard 和
-/// EngineLiveStatsView 都要用，挪到文件级 private，两边共用。
-private func metric(_ value: String, _ label: String,
-                    highlight: Bool = false, warn: Bool = false) -> some View {
-    VStack(spacing: 3) {
-        Text(value)
-            .font(.system(size: 22, weight: .semibold, design: .rounded))
-            .monospacedDigit()
-            .foregroundColor(warn ? Color.orange : (highlight ? Color.green : Color.primary))
-        Text(label)
-            .font(.caption2)
-            .foregroundColor(.secondary)
-    }
-    .frame(maxWidth: .infinity)
-}
-
-/// 指标之间的竖分隔线：同上，挪到文件级 private（函数形式，
-//  避免文件级 some View 全局变量的写法风险）。
-private func dividerView() -> some View {
-    Rectangle()
-        .fill(Color.primary.opacity(0.07))
-        .frame(width: 1, height: 26)
-}
-
-/// 运行状态卡片里每秒都在变的那几行（帧/包/往返、实测 fps、心跳状态、
-/// 仪表报告）：只订阅 CastEngine。帧计数原来每帧改一次 @Published，
-/// 现在由 statTimer 每秒同步一次（CastEngine.sentFramesTotal），
-/// 这里最多每秒刷新一次。
-private struct EngineLiveStatsView: View {
-    @ObservedObject var engine: CastEngine
-    var accent: Color
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 0) {
-                metric(String(engine.sentFrames), "帧已发送")
-                dividerView()
-                metric(String(engine.sentPackets), "包已发送")
-                dividerView()
-                metric(engine.rtcpPongCount > 0 ? "\(max(0, engine.lastRTTMs))" : "—",
-                       "往返 ms",
-                       highlight: engine.rtcpPongCount > 0)
-            }
-            if engine.isRunning {
-                HStack(spacing: 0) {
-                    metric("\(engine.measuredFps)", "实测 fps")
-                    dividerView()
-                    metric("\(engine.avgFrameKB)", "帧均 KB")
-                    dividerView()
-                    metric("\(engine.backlogPackets)", "待发积压",
-                           warn: engine.backlogPackets > 120)
-                }
-            }
-            HStack(spacing: 6) {
-                Image(systemName: engine.rtcpPongCount > 0 ? "checkmark.circle.fill" : "clock")
-                    .font(.system(size: 12))
-                Text(engine.rtcpPongCount > 0
-                     ? (engine.droppedFrames > 0
-                        ? "仪表在线 · 已回应 \(engine.rtcpPongCount) 次心跳 · 主动丢 \(engine.droppedFrames) 帧"
-                        : "仪表在线，已回应 \(engine.rtcpPongCount) 次心跳")
-                     : "等仪表回应心跳（2 秒以上）")
-                    .font(.caption)
-            }
-            .foregroundColor(engine.rtcpPongCount > 0 ? .green : .secondary)
-
-            if !engine.dashboardReport.isEmpty {
-                Text(engine.dashboardReport)
-                    .font(.caption)
-                    .foregroundColor(accent)
-            }
-        }
-    }
-}
-
-/// BMS 卡片里每秒变的诊断行（阶段/已发/收到）：只订阅 ANTBMS。
-private struct BMSDiagLineView: View {
-    @ObservedObject var antbms: ANTBMS
-
-    var body: some View {
-        Text("阶段：\(antbms.stage)　已发 \(antbms.pollCount) 次　收到 \(antbms.rxBytes) 字节\(antbms.notifyOn ? "　通知已开" : "")")
-            .font(.caption2)
-            .foregroundColor(.secondary)
-    }
-}
-
-/// 灯带卡片里每秒变的诊断行（阶段/已发/收到）：只订阅 ELKStrip。
-private struct ELKDiagLineView: View {
-    @ObservedObject var elk: ELKStrip
-
-    var body: some View {
-        Text("阶段：\(elk.stage)　已发 \(elk.writeCount) 次　收到 \(elk.rxBytes) 字节\(elk.notifyOn ? "　通知已开" : "")")
-            .font(.caption2)
-            .foregroundColor(.secondary)
-    }
 }
