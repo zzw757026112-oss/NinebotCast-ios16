@@ -18,6 +18,7 @@ enum AppVersion {
 struct MainView: View {
     @StateObject private var engine = CastEngine()
     @StateObject private var antbms = ANTBMS.shared
+    @StateObject private var elk = ELKStrip.shared
     @StateObject private var ride = RideTracker.shared
     @Environment(\.colorScheme) private var scheme
 
@@ -53,6 +54,9 @@ struct MainView: View {
     @State private var showAdvanced = false
     @State private var showDiag = false
     @State private var showRideHistory = false
+    @State private var elkBrightnessDraft: Double = 100 // 灯带亮度草稿：松手才发
+    @State private var elkPickerColor: Color = .white // 灯带自选色
+    @State private var elkColorFromPreset = false // 预设色块点的：不重复发颜色
     @State private var scanning = false
     @State private var tcpScanning = false
     @State private var probing = false
@@ -93,6 +97,7 @@ struct MainView: View {
                     mirrorCard
                     hudCard
                     bmsCard
+                    elkCard
                     rideCard
                     licenseCard
                     metricsCard
@@ -696,6 +701,198 @@ struct MainView: View {
                     .foregroundColor(.secondary)
             }
         }
+    }
+
+    // MARK: - 七彩日行灯（车上的 LED 灯带，ELK-BLEDOB，1.3.0）
+    // duoCo Strip 同款控制器（服务 FFF0，9 字节 7E…EF 命令），
+    // 内容由 ELKStrip 的 @Published 驱动，不用 timer 轮询 UI。
+    // 注意：NinebotCastApp.swift 的 init 里还没像 ANTBMS 那样
+    // touch ELKStrip.shared——App 被系统杀掉后在后台拉起时，
+    // 灯的 BLE 会话恢复不了，要等 MainView 出现才重连。后台保活
+    // 开着时很少被杀，先这样；要补只用在 init 里加一行
+    // `_ = ELKStrip.shared`（同 ANTBMS 的写法）。
+    private var elkCard: some View {
+        card("七彩日行灯", icon: "lightbulb.fill") {
+            Toggle("启用七彩日行灯", isOn: $elk.isEnabled)
+                .font(.subheadline)
+            if elk.isEnabled {
+                HStack(spacing: 6) {
+                    Text(elk.isConnected ? "已连接" : (elk.isScanning ? "搜索中…" : "未连接"))
+                    if let name = elk.deviceName {
+                        Text(name)
+                    }
+                    if let rssi = elk.rssi {
+                        Text("\(rssi)dBm")
+                    }
+                    Spacer()
+                }
+                .font(.caption)
+                .foregroundColor(.secondary)
+                Text("阶段：\(elk.stage)　已发 \(elk.writeCount) 次　收到 \(elk.rxBytes) 字节\(elk.notifyOn ? "　通知已开" : "")")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                if let err = elk.lastError {
+                    Text(err)
+                        .font(.caption2)
+                        .foregroundColor(.red)
+                }
+                HStack(spacing: 12) {
+                    Button {
+                        elk.turnOn()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "lightbulb.fill")
+                                .font(.system(size: 13, weight: .bold))
+                            Text(elk.isOn ? "开着" : "开灯")
+                                .font(.subheadline.weight(.semibold))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(elk.isOn ? accent : Color.primary.opacity(0.08)))
+                        .foregroundColor(elk.isOn ? .white : .primary)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!elk.isConnected)
+                    Button {
+                        elk.turnOff()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "lightbulb")
+                                .font(.system(size: 13, weight: .bold))
+                            Text("关灯")
+                                .font(.subheadline.weight(.semibold))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.primary.opacity(0.08)))
+                        .foregroundColor(.primary)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!elk.isConnected)
+                }
+                // 7 个预设色：点一下就发颜色命令（灯关着时先开灯再变色）。
+                HStack(spacing: 10) {
+                    ForEach(Array(elkPresets.enumerated()), id: \.offset) { _, preset in
+                        Button {
+                            elkColorFromPreset = true
+                            elkPickerColor = preset.color
+                            elk.setColor(r: preset.r, g: preset.g, b: preset.b)
+                        } label: {
+                            Circle()
+                                .fill(preset.color)
+                                .frame(width: 30, height: 30)
+                                .overlay(
+                                    Circle()
+                                        .stroke(Color.primary.opacity(0.25), lineWidth: 1)
+                                )
+                                .overlay(
+                                    Circle()
+                                        .stroke(Color.white, lineWidth: 2)
+                                        .opacity(elk.colorR == preset.r && elk.colorG == preset.g && elk.colorB == preset.b ? 1 : 0)
+                                )
+                                .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!elk.isConnected)
+                    }
+                }
+                ColorPicker("自选颜色", selection: $elkPickerColor)
+                    .font(.subheadline)
+                    .disabled(!elk.isConnected)
+                    .onChange(of: elkPickerColor) { color in
+                        if elkColorFromPreset {
+                            elkColorFromPreset = false
+                            return
+                        }
+                        let (r, g, b) = elkColorComponents(color)
+                        elk.setColor(r: r, g: g, b: b)
+                    }
+                HStack {
+                    Text("亮度 \(Int(elkBrightnessDraft))%")
+                        .font(.subheadline)
+                    Slider(value: $elkBrightnessDraft, in: 0...100, step: 1) { editing in
+                        // 松手再发：拖动一路狂发会把灯的命令队列堵满。
+                        if !editing {
+                            elk.setBrightness(Int(elkBrightnessDraft))
+                        }
+                    }
+                    .disabled(!elk.isConnected)
+                    Button("白色") {
+                        elk.setWhite()
+                        elkBrightnessDraft = Double(elk.brightness)
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(Color.primary.opacity(0.08)))
+                    .buttonStyle(.plain)
+                    .disabled(!elk.isConnected)
+                }
+                HStack(spacing: 8) {
+                    ForEach(Array(elkEffects.enumerated()), id: \.offset) { _, effect in
+                        Button(effect.name) {
+                            elk.setEffect(effect.id, name: effect.name)
+                        }
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(elk.lastEffect == effect.name ? accent.opacity(0.18) : Color.primary.opacity(0.06)))
+                        .foregroundColor(elk.lastEffect == effect.name ? accent : .primary)
+                        .buttonStyle(.plain)
+                        .disabled(!elk.isConnected)
+                    }
+                }
+                Text("连不上时：先退出 duoCo（一个灯一次只能连一个 App），再等它重连；卡片上的名字和信号帮你确认连的是自己车上的灯——开关一按，看车灯变不变就知道。")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            } else {
+                Text("车上的日行灯带（ELK-BLEDOB），duoCo Strip 同款控制器；打开后自动连信号最强的一台（邻居家同型号也在广播，弱信号那台不是车上的灯）。")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .onAppear {
+            elkBrightnessDraft = Double(elk.brightness)
+            elkPickerColor = Color(red: Double(elk.colorR) / 255,
+                                   green: Double(elk.colorG) / 255,
+                                   blue: Double(elk.colorB) / 255)
+        }
+    }
+
+    /// 预设色块（红/橙/黄/绿/青/蓝/紫）。
+    private var elkPresets: [(name: String, r: UInt8, g: UInt8, b: UInt8, color: Color)] {
+        [
+            ("红", 255, 0, 0, .red),
+            ("橙", 255, 165, 0, .orange),
+            ("黄", 255, 255, 0, .yellow),
+            ("绿", 0, 255, 0, .green),
+            ("青", 0, 255, 255, .cyan),
+            ("蓝", 0, 0, 255, .blue),
+            ("紫", 128, 0, 255, .purple),
+        ]
+    }
+
+    /// 灯效按钮（id 来自 elkbledom definitions.json 的 EFFECTS 枚举，
+    /// 已核实；命令是 7E 07 03 <id> 03 FF FF 00 EF）。
+    private var elkEffects: [(name: String, id: Int)] {
+        [
+            ("七彩跳变", ELKStrip.effectJump7),
+            ("七彩渐变", ELKStrip.effectFade7),
+            ("红绿蓝跳变", ELKStrip.effectJumpRGB),
+        ]
+    }
+
+    /// 从 SwiftUI Color 取 0–255 的 RGB（ColorPicker 回调用）。
+    private func elkColorComponents(_ color: Color) -> (UInt8, UInt8, UInt8) {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a)
+        return (UInt8(max(0, min(255, Int((r * 255).rounded())))),
+                UInt8(max(0, min(255, Int((g * 255).rounded())))),
+                UInt8(max(0, min(255, Int((b * 255).rounded())))))
     }
 
     // MARK: - 骑行记录（GPS，不接车，1.2.9）

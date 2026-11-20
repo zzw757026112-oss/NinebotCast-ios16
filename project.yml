@@ -44,8 +44,8 @@ targets:
       path: Support/Info.plist
       properties:
         CFBundleDisplayName: Ninebot Pro+
-        CFBundleShortVersionString: "1.2.9"
-        CFBundleVersion: "53"
+        CFBundleShortVersionString: "1.3.0"
+        CFBundleVersion: "54"
         UILaunchScreen: {}
         NSSupportsLiveActivities: true
         NSSupportsLiveActivitiesFrequentUpdates: true
@@ -53,7 +53,7 @@ targets:
         NSLocalNetworkUsageDescription: 用于连接九号仪表并发送投屏画面（UDP 5012/5013）。
         NSCameraUsageDescription: 用于摄像头画面投屏。
         NSPhotoLibraryUsageDescription: 用于相册图片和视频投屏。
-        NSBluetoothAlwaysUsageDescription: 用于直连九号滑板车，读取速度、电量和电压，以及连接 ANT BMS 锂电池读取电池数据，显示在仪表上。
+        NSBluetoothAlwaysUsageDescription: 用于直连九号滑板车，读取速度、电量和电压，以及连接 ANT BMS 锂电池读取电池数据，显示在仪表上，以及连接车上的七彩日行灯带（ELK-BLEDOB）进行开关和调色。
         NSLocationWhenInUseUsageDescription: 用于显示当地天气（按定位取天气，叠加到仪表画面上）。
         NSLocationAlwaysAndWhenInUseUsageDescription: 骑行记录需要在后台持续定位（骑行时退后台也继续记里程和速度）；只在骑行时用，不会一直跑定位。
         UISupportedInterfaceOrientations:
@@ -84,8 +84,8 @@ targets:
       path: Broadcast/Info.plist
       properties:
         CFBundleDisplayName: Ninebot Pro+
-        CFBundleShortVersionString: "1.2.9"
-        CFBundleVersion: "53"
+        CFBundleShortVersionString: "1.3.0"
+        CFBundleVersion: "54"
         # NSExtension MUST live here: xcodegen writes only the
         # properties into the plist, so the NSExtension dict that
         # used to live only in Broadcast/Info.plist was lost and
