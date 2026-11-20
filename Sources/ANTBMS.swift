@@ -59,8 +59,11 @@ final class ANTBMS: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeri
 
     private static let serviceUUID = CBUUID(string: "FFE0")
     private static let cmdUUID = CBUUID(string: "FFE1")
-    /// 读数命令：DBDB00000000，Write Without Response。
-    private static let pollCommand = Data([0xDB, 0xDB, 0x00, 0x00, 0x00, 0x00])
+    /// 读数命令：正经的状态命令 7E A1 01 00 00 BE + Modbus CRC(18 55) + AA 55，
+    /// Write Without Response。1.3.10：之前用的 DBDB00000000 只回缓存的旧数据，
+    /// 数值一直不动，必须打开 ANT App 才会刷新；这条才是 aiobmsble/ANT App 用的
+    /// 标准取数命令，每发一次保护板重新测一次（朋友版 104 已实测可实时更新）。
+    private static let pollCommand = Data([0x7E, 0xA1, 0x01, 0x00, 0x00, 0xBE, 0x18, 0x55, 0xAA, 0x55])
 
     private var central: CBCentralManager!
     private var peripheral: CBPeripheral?
@@ -335,6 +338,9 @@ final class ANTBMS: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeri
             return
         }
         p.writeValue(Self.pollCommand, for: ch, type: .withoutResponse)
+        // 1.3.10：每轮再读一次 FFE1——睡着的保护板不理“写”，但“读”是必须回的请求
+        //（朋友版 102 实测：连接时那次读拿到了第一帧，之后只写就再没回包）。
+        p.readValue(for: ch)
         // 3 次轮询都没回包：补一次带回应写入，看写入本身通不通。
         if pollCount == 3, rxBytes == 0, !writeProbeDone {
             writeProbeDone = true
@@ -432,7 +438,9 @@ final class ANTBMS: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeri
         let temps = (0..<6).map { Int(u16(f, 34 + 2 * n + 2 * $0)) }
         let voltage = Float(u16(f, 46 + 2 * n)) / 100
         let current = Float(Int16(bitPattern: u16(f, 48 + 2 * n))) / 10
-        let soc = Float(u16(f, 52 + 2 * n)) / 10
+        // 1.3.10：SOC（battery_level）在 50+2n，u16 原值就是百分比，不用除。
+        // 之前读的 52+2n 是 battery_health（恒为 100），除以 10 后永远是 10.0%。
+        let soc = Float(u16(f, 50 + 2 * n))
         guard let cMin = cells.min(), let cMax = cells.max() else { return nil }
         return ANTBMSData(
             voltage: voltage,
