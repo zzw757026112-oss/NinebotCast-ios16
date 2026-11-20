@@ -215,6 +215,11 @@ final class HUDData: NSObject, CLLocationManagerDelegate, CXCallObserverDelegate
         let date = dateFormatter.string(from: Date())
         // 手机音量（0...1）。
         var volume = AVAudioSession.sharedInstance().outputVolume
+        // 手机电量（0...1）：扩展进程直接读 UIDevice.batteryLevel 是陈旧值，
+        // 跟音量一个毛病（1.3.3 实测仪表显示 100%，手机实际 95%），
+        // 所以 1.3.4 也走 HUDDataRelay 中继。
+        var batteryLevel = level
+        var batteryCharging = (state == .charging || state == .full)
         if isExtension {
             // 扩展进程读不到真实音量（outputVolume 是陈旧值，
             // 1.1.0 实测音量卡在 5% 不动）：优先用主 App 中继来的新鲜值；
@@ -226,9 +231,16 @@ final class HUDData: NSObject, CLLocationManagerDelegate, CXCallObserverDelegate
             if let relayed = HUDDataRelay.current {
                 if relayed.volume >= 0 { volume = relayed.volume }
             }
+            // 电量中继（1.3.4）：新鲜就用中继值，过期或没值回落本地读数。
+            if let relayedBattery = HUDDataRelay.currentBattery,
+               relayedBattery.level >= 0 {
+                batteryLevel = relayedBattery.level
+                batteryCharging = relayedBattery.charging
+            }
         } else {
             // App 进程：本地读数是真的，读完发给扩展画镜像 HUD。
             HUDDataRelay.update(volume: volume)
+            HUDDataRelay.update(batteryLevel: level, charging: batteryCharging)
         }
         // ANT BMS（1.2.0）：和音量同一路子——App 进程读中继的本地缓存
         //（ANTBMS 解析到帧就调 ANTBMSRelay.update），扩展进程读通知；
@@ -246,8 +258,8 @@ final class HUDData: NSObject, CLLocationManagerDelegate, CXCallObserverDelegate
             speed = SpeedHUDData(kmh: r.speedKmh, overspeed: true)
         }
         lock.lock()
-        _batteryLevel = level
-        _batteryCharging = (state == .charging || state == .full)
+        _batteryLevel = batteryLevel
+        _batteryCharging = batteryCharging
         _dateText = date
         _volume = volume
         _bms = bms
