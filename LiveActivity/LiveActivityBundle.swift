@@ -56,37 +56,16 @@ struct LiveActivityWidget: Widget {
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    VStack(alignment: .leading) {
-                        Text("\(Int(context.state.speedKmh))")
-                            .font(.system(size: 28, weight: .bold, design: .rounded))
-                            .monospacedDigit()
-                        Text("km/h").font(.caption2).foregroundColor(.secondary)
-                    }
+                    leadingView(speedKmh: context.state.speedKmh)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    VStack(alignment: .trailing) {
-                        Text(String(format: "%.1f km", context.state.distanceKm))
-                            .font(.headline)
-                            .monospacedDigit()
-                        Text(formatRideDuration(context.state.durationSec))
-                            .font(.caption2).foregroundColor(.secondary)
-                    }
+                    trailingView(distanceKm: context.state.distanceKm, durationSec: context.state.durationSec)
                 }
                 DynamicIslandExpandedRegion(.center) {
                     centerStatusView(overspeed: context.state.overspeed, casting: context.state.casting)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    HStack(spacing: 12) {
-                        if let v = context.state.bmsVoltage {
-                            Label(String(format: "%.1fV", v), systemImage: "bolt.fill")
-                        }
-                        if let soc = context.state.bmsSoc {
-                            Label(String(format: "%.0f%%", soc), systemImage: "battery.25")
-                        }
-                        Spacer()
-                        Text("Ninebot Pro+").font(.caption2).foregroundColor(.secondary)
-                    }
-                    .font(.caption)
+                    bottomView(voltage: context.state.bmsVoltage, soc: context.state.bmsSoc)
                 }
             } compactLeading: {
                 Text("\(Int(context.state.speedKmh))")
@@ -118,6 +97,50 @@ private func centerStatusView(overspeed: Bool, casting: Bool) -> some View {
     } else if casting {
         Text("投屏中").font(.subheadline).foregroundColor(.secondary)
     }
+}
+
+/// 展开区左：速度。1.3.2 构建时 DynamicIsland 又报
+/// "generic parameter 'Expanded' could not be inferred"（跟 1.3.0
+/// 首次构建同一处），1.3.0 的修复只抽了中间区，剩下的三区
+/// 仍是内联写法；这次四区全部抽成 @ViewBuilder 函数，
+/// DynamicIsland 闭包里只留四个区域调用，不再做类型推断。
+@ViewBuilder
+private func leadingView(speedKmh: Double) -> some View {
+    VStack(alignment: .leading) {
+        Text("\(Int(speedKmh))")
+            .font(.system(size: 28, weight: .bold, design: .rounded))
+            .monospacedDigit()
+        Text("km/h").font(.caption2).foregroundColor(.secondary)
+    }
+}
+
+/// 展开区右：距离/时长。
+@ViewBuilder
+private func trailingView(distanceKm: Double, durationSec: Int) -> some View {
+    VStack(alignment: .trailing) {
+        Text(String(format: "%.1f km", distanceKm))
+            .font(.headline)
+            .monospacedDigit()
+        Text(formatRideDuration(durationSec))
+            .font(.caption2).foregroundColor(.secondary)
+    }
+}
+
+/// 展开区下：BMS 电压/电量 + 名称（条件分支放这里，别放闭包里）。
+/// 注意：bmsVoltage/bmsSoc 在 RideActivity 里是 Float?，别写成 Double?。
+@ViewBuilder
+private func bottomView(voltage: Float?, soc: Float?) -> some View {
+    HStack(spacing: 12) {
+        if let v = voltage {
+            Label(String(format: "%.1fV", v), systemImage: "bolt.fill")
+        }
+        if let s = soc {
+            Label(String(format: "%.0f%%", s), systemImage: "battery.25")
+        }
+        Spacer()
+        Text("Ninebot Pro+").font(.caption2).foregroundColor(.secondary)
+    }
+    .font(.caption)
 }
 
 /// 秒 → "12:34" / "1:23:45"（锁屏和灵动岛共用）。
