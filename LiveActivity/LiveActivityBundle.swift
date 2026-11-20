@@ -85,52 +85,47 @@ struct LiveActivityWidget: Widget {
 }
 
 /// 灵动岛展开区中间的状态行（超速/投屏中）。
-/// 单独抽成 @ViewBuilder：条件分支放在普通 ViewBuilder 里，
-/// 别直接写在 DynamicIsland 的展开区闭包里——1.3.0 构建时
-/// DynamicIslandExpandedContentBuilder 在那处报
-/// "does not implement any 'buildBlock' ... with sufficient availability"，
-/// 展开区闭包里只留一个调用，类型就确定了。
-@ViewBuilder
-private func centerStatusView(overspeed: Bool, casting: Bool) -> some View {
-    if overspeed {
-        Text("超速！").font(.headline).foregroundColor(.red)
-    } else if casting {
-        Text("投屏中").font(.subheadline).foregroundColor(.secondary)
-    }
+/// 返回具体类型 AnyView：1.3.3 把四区抽成 @ViewBuilder（不透明类型），
+/// 1.3.4 换 runner 后又报 "generic parameter 'Expanded' could not be
+/// inferred"——builder 的 buildBlock 在四个不同的不透明类型上合并不了；
+/// 四区都包成 AnyView，Expanded 就是 DynamicIslandExpandedRegion<AnyView>，
+/// 不再靠类型推断。if/else-if 没 else 分支时空分支是 EmptyView，没问题。
+private func centerStatusView(overspeed: Bool, casting: Bool) -> AnyView {
+    AnyView(Group {
+        if overspeed {
+            Text("超速！").font(.headline).foregroundColor(.red)
+        } else if casting {
+            Text("投屏中").font(.subheadline).foregroundColor(.secondary)
+        }
+    })
 }
 
-/// 展开区左：速度。1.3.2 构建时 DynamicIsland 又报
-/// "generic parameter 'Expanded' could not be inferred"（跟 1.3.0
-/// 首次构建同一处），1.3.0 的修复只抽了中间区，剩下的三区
-/// 仍是内联写法；这次四区全部抽成 @ViewBuilder 函数，
-/// DynamicIsland 闭包里只留四个区域调用，不再做类型推断。
-@ViewBuilder
-private func leadingView(speedKmh: Double) -> some View {
-    VStack(alignment: .leading) {
+/// 展开区左：速度。返回 AnyView（见 centerStatusView 的注释：
+/// 四区同为 AnyView，Expanded 才能确定，不靠编译器推断）。
+private func leadingView(speedKmh: Double) -> AnyView {
+    AnyView(VStack(alignment: .leading) {
         Text("\(Int(speedKmh))")
             .font(.system(size: 28, weight: .bold, design: .rounded))
             .monospacedDigit()
         Text("km/h").font(.caption2).foregroundColor(.secondary)
-    }
+    })
 }
 
-/// 展开区右：距离/时长。
-@ViewBuilder
-private func trailingView(distanceKm: Double, durationSec: Int) -> some View {
-    VStack(alignment: .trailing) {
+/// 展开区右：距离/时长。返回 AnyView（见 centerStatusView 的注释）。
+private func trailingView(distanceKm: Double, durationSec: Int) -> AnyView {
+    AnyView(VStack(alignment: .trailing) {
         Text(String(format: "%.1f km", distanceKm))
             .font(.headline)
             .monospacedDigit()
         Text(formatRideDuration(durationSec))
             .font(.caption2).foregroundColor(.secondary)
-    }
+    })
 }
 
-/// 展开区下：BMS 电压/电量 + 名称（条件分支放这里，别放闭包里）。
+/// 展开区下：BMS 电压/电量 + 名称。返回 AnyView（见 centerStatusView 的注释）。
 /// 注意：bmsVoltage/bmsSoc 在 RideActivity 里是 Float?，别写成 Double?。
-@ViewBuilder
-private func bottomView(voltage: Float?, soc: Float?) -> some View {
-    HStack(spacing: 12) {
+private func bottomView(voltage: Float?, soc: Float?) -> AnyView {
+    AnyView(HStack(spacing: 12) {
         if let v = voltage {
             Label(String(format: "%.1fV", v), systemImage: "bolt.fill")
         }
@@ -140,7 +135,7 @@ private func bottomView(voltage: Float?, soc: Float?) -> some View {
         Spacer()
         Text("Ninebot Pro+").font(.caption2).foregroundColor(.secondary)
     }
-    .font(.caption)
+    .font(.caption))
 }
 
 /// 秒 → "12:34" / "1:23:45"（锁屏和灵动岛共用）。
