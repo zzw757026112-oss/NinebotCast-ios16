@@ -37,12 +37,21 @@ enum DisplayFitRelay {
         "\(prefix).\(fit ? 1 : 0)" as CFString
     }
 
+    private static func fit(fromName name: CFString) -> Bool? {
+        let s = name as String
+        guard s.hasPrefix(prefix + ".") else { return nil }
+        return s == "\(prefix).1"
+    }
+
     // MARK: - 扩展：收
 
     private static var observing = false
 
     /// 扩展启动时调一次（SampleHandler.init）：订阅 2 个开关通知。
     /// 回调可能在任意线程来，只存一个 Bool 值，不做别的。
+    /// 注意：回调是 C 函数指针，不能捕获上下文——所以闭包里只调
+    /// 全限定名的静态方法（DisplayFitRelay.fit(fromName:)），不直接
+    /// 写 bare 的 `prefix`（那样会隐式捕获 self，编不过）。
     static func startObserving() {
         lock.lock()
         guard !observing else { lock.unlock(); return }
@@ -52,9 +61,8 @@ enum DisplayFitRelay {
         let center = CFNotificationCenterGetDarwinNotifyCenter()
         for fit in [false, true] {
             CFNotificationCenterAddObserver(center, nil, { _, _, name, _, _ in
-                guard let name else { return }
-                let s = name.rawValue as String
-                DisplayFitRelay.setCurrent(s == "\(prefix).1")
+                guard let name, let f = DisplayFitRelay.fit(fromName: name.rawValue) else { return }
+                DisplayFitRelay.setCurrent(f)
             }, name(for: fit), nil, .deliverImmediately)
         }
     }
