@@ -73,11 +73,7 @@ struct LiveActivityWidget: Widget {
                     }
                 }
                 DynamicIslandExpandedRegion(.center) {
-                    if context.state.overspeed {
-                        Text("超速！").font(.headline).foregroundColor(.red)
-                    } else if context.state.casting {
-                        Text("投屏中").font(.subheadline).foregroundColor(.secondary)
-                    }
+                    centerStatusView(overspeed: context.state.overspeed, casting: context.state.casting)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     HStack(spacing: 12) {
@@ -106,6 +102,21 @@ struct LiveActivityWidget: Widget {
                     .monospacedDigit()
             }
         }
+    }
+}
+
+/// 灵动岛展开区中间的状态行（超速/投屏中）。
+/// 单独抽成 @ViewBuilder：条件分支放在普通 ViewBuilder 里，
+/// 别直接写在 DynamicIsland 的展开区闭包里——1.3.0 构建时
+/// DynamicIslandExpandedContentBuilder 在那处报
+/// "does not implement any 'buildBlock' ... with sufficient availability"，
+/// 展开区闭包里只留一个调用，类型就确定了。
+@ViewBuilder
+private func centerStatusView(overspeed: Bool, casting: Bool) -> some View {
+    if overspeed {
+        Text("超速！").font(.headline).foregroundColor(.red)
+    } else if casting {
+        Text("投屏中").font(.subheadline).foregroundColor(.secondary)
     }
 }
 
