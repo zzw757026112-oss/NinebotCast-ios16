@@ -65,8 +65,11 @@ final class ANTBMS: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeri
 
     private static let serviceUUID = CBUUID(string: "FFE0")
     private static let cmdUUID = CBUUID(string: "FFE1")
-    /// 读数命令：DBDB00000000，Write Without Response。
-    private static let pollCommand = Data([0xDB, 0xDB, 0x00, 0x00, 0x00, 0x00])
+    /// 读数命令：正经的状态命令 7E A1 01 00 00 BE + Modbus CRC(18 55) + AA 55，
+    /// Write Without Response。朋友版 104：之前用的 DBDB00000000 只回缓存的旧数据，
+    /// 数值一直不动，必须打开 ANT App 才会刷新；这条才是 aiobmsble/ANT App 用的
+    /// 标准取数命令，每发一次保护板重新测一次。
+    private static let pollCommand = Data([0x7E, 0xA1, 0x01, 0x00, 0x00, 0xBE, 0x18, 0x55, 0xAA, 0x55])
 
     private var central: CBCentralManager!
     private var peripheral: CBPeripheral?
