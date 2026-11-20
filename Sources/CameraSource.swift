@@ -164,7 +164,7 @@ final class CameraSource: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate
         default: break
         }
         ci = FrameRenderer.aspectFillTransform(ci, destWidth: w, destHeight: h,
-                                               fit: UserDefaults.standard.bool(forKey: "nbc.displayFit"))
+                                               mode: UserDefaults.standard.integer(forKey: "nbc.displayMode"))
         ciContext.render(ci, to: dest,
                          bounds: CGRect(x: 0, y: 0, width: w, height: h),
                          colorSpace: CGColorSpaceCreateDeviceRGB())

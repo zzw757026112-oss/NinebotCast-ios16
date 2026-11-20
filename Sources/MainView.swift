@@ -33,7 +33,7 @@ struct MainView: View {
     @AppStorage("nbc.dupKey") private var duplicateKeyframes = false
     @AppStorage("nbc.chunk1400") private var chunk1400 = true
     @AppStorage("nbc.mirrorRotation") private var mirrorRotationIndex = 0 // 0 自动 1 90° 2 180° 3 270°
-    @AppStorage("nbc.displayFit") private var displayFit = false // 完整显示：true 整幅可见留黑边，false 铺满裁两边（默认）
+    @AppStorage("nbc.displayMode") private var displayMode = 0 // 显示模式：0 铺满（裁两边，默认），1 完整（上下黑边），2 拉伸（整幅硬拉到仪表，横向略压扁）
     // HUD 自定义：显示哪些项、放哪个角、字号多大（发给录屏扩展）
     @AppStorage("nbc.hud.showDate") private var hudShowDate = true
     @AppStorage("nbc.hud.showWeather") private var hudShowWeather = true
@@ -572,18 +572,22 @@ struct MainView: View {
             Text("方向默认自动跟随手机；自动转不正时手动选 90° 或 270°，下一帧就生效，不用重开镜像。")
                 .font(.caption2)
                 .foregroundColor(.secondary)
-            Toggle("完整显示", isOn: $displayFit)
-                .font(.subheadline)
-            Text("打开：整幅画面都可见，上下留黑边；关闭：铺满全屏，左右各裁掉一点。手机画面比仪表宽，铺满和不裁剪没法同时做到。下一帧就生效，不用重开镜像。")
+            Picker("显示", selection: $displayMode) {
+                Text("铺满").tag(0)
+                Text("完整").tag(1)
+                Text("拉伸").tag(2)
+            }
+            .pickerStyle(.segmented)
+            Text("铺满：铺满全屏，左右各裁掉一点；完整：整幅画面都可见，上下留黑边；拉伸：整幅画面铺满仪表，横向略压扁。手机画面比仪表宽，铺满和不裁剪没法同时做到。下一帧就生效，不用重开镜像。")
                 .font(.caption2)
                 .foregroundColor(.secondary)
             Text("仪表右下角会叠加一个小胶囊：日期时间和天气、信号、电量，来电时左下角显示红色“来电”。位置和显示项可以在下面 HUD 设置里改。")
                 .font(.caption2)
                 .foregroundColor(.secondary)
         }
-        .onChange(of: displayFit) { value in
-            // 开关一拨就发给录屏扩展，下一帧就生效；图片源是静态 buffer，要重建
-            DisplayFitRelay.setFit(value)
+        .onChange(of: displayMode) { value in
+            // 模式一改就发给录屏扩展，下一帧就生效；图片源是静态 buffer，要重建
+            DisplayFitRelay.setMode(value)
             engine.refreshDisplayFit()
         }
     }
@@ -1487,7 +1491,7 @@ struct MainView: View {
         default: break
         }
         ci = FrameRenderer.aspectFillTransform(ci, destWidth: width, destHeight: height,
-                                               fit: UserDefaults.standard.bool(forKey: "nbc.displayFit"))
+                                               mode: UserDefaults.standard.integer(forKey: "nbc.displayMode"))
         let rect = CGRect(x: 0, y: 0, width: width, height: height)
         if let cg = previewContext.createCGImage(ci, from: rect) {
             return UIImage(cgImage: cg)
