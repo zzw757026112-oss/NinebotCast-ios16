@@ -18,8 +18,12 @@ private enum MirrorRotation {
 
 /// 把录屏帧缩放到 848x480，复用目标 buffer。
 ///
-/// 横屏源（宽 > 高，如手机横过来）：裁满（fill）——按大边缩放、居中裁掉
+/// 横屏源（宽 > 高，如手机横过来）：默认裁满（fill）——按大边缩放、居中裁掉
 /// 多余的两边，铺满整个仪表，没有黑边。代价是左右各裁掉约 9% 的画面。
+/// 用户开了「完整显示」开关（DisplayFitRelay.current）就改走 fit——按小边
+/// 缩放，整幅画面都可见，上下各留约 44px 黑边。
+/// 几何原因：iPhone 竖屏 1290x2796，270° 翻转后是 2796x1290（2.17:1），
+/// 仪表是 848x480（1.77:1），铺满和不裁剪没法同时做到，开关就是二选一。
 /// 竖屏源：保持 fit（整屏可见、两边黑边），因为竖屏画面裁满会把上下
 /// 裁掉四分之三，没法看；竖屏在横屏仪表上本来就是中间一条竖条。
 ///
@@ -96,8 +100,11 @@ final class ScreenScaler {
 
         let format = CVPixelBufferGetPixelFormatType(src)
         if format == kCVPixelFormatType_32BGRA {
-            // 横屏裁满、竖屏 fit
+            // 横屏：铺满（fill）或完整显示（fit，看开关）；竖屏 fit
             if srcWidth > srcHeight {
+                if DisplayFitRelay.current {
+                    return scaleBGRA(src, srcWidth: srcWidth, srcHeight: srcHeight, dest: dest)
+                }
                 return scaleFillBGRA(src, srcWidth: srcWidth, srcHeight: srcHeight, dest: dest)
             }
             return scaleBGRA(src, srcWidth: srcWidth, srcHeight: srcHeight, dest: dest)
@@ -145,8 +152,9 @@ final class ScreenScaler {
         return nil
     }
 
-    /// 转正 + 裁满，一步在 CoreImage 里完成，不用开整帧大 buffer
+    /// 转正 + 裁满（或完整显示），一步在 CoreImage 里完成，不用开整帧大 buffer
     /// （竖帧全尺寸约 14MB，扩展内存预算只有约 50MB）。
+    /// fit 时取小边缩放，画面缩进中间，dest 已事先涂黑，黑边就是底色。
     /// CoreImage 里正角度是逆时针（y 朝上坐标系）。
     private func scaleRotated(_ src: CVPixelBuffer, srcWidth: Int, srcHeight: Int,
                               rotation: MirrorRotation, dest: CVPixelBuffer) -> CVPixelBuffer? {
@@ -163,7 +171,10 @@ final class ScreenScaler {
             .translatedBy(x: -cx, y: -cy)
         let image = CIImage(cvPixelBuffer: src).transformed(by: rot)
         let r = image.extent // 转正后是 H x W，中心仍在 (cx, cy)
-        let scale = max(Double(outWidth) / r.width, Double(outHeight) / r.height)
+        // 铺满取大边（裁两边），完整显示取小边（留上下黑边）
+        let scale = DisplayFitRelay.current
+            ? min(Double(outWidth) / r.width, Double(outHeight) / r.height)
+            : max(Double(outWidth) / r.width, Double(outHeight) / r.height)
         let tx = (Double(outWidth) - r.width * scale) / 2 - Double(r.origin.x) * scale
         let ty = (Double(outHeight) - r.height * scale) / 2 - Double(r.origin.y) * scale
         let final = image
@@ -278,12 +289,19 @@ final class ScreenScaler {
 
     private func scaleViaCoreImage(_ src: CVPixelBuffer, srcWidth: Int, srcHeight: Int,
                                    dest: CVPixelBuffer) -> CVPixelBuffer? {
-        // 横屏裁满、竖屏 fit；裁满时 dx/dy 为负，render 时按 bounds 裁掉超出部分
-        let scale = srcWidth > srcHeight
-            ? max(Double(outWidth) / Double(srcWidth),
-                  Double(outHeight) / Double(srcHeight))
-            : min(Double(outWidth) / Double(srcWidth),
-                  Double(outHeight) / Double(srcHeight))
+        // 横屏：铺满（fill）或完整显示（fit，看开关）、竖屏 fit；
+        // 裁满时 dx/dy 为负，render 时按 bounds 裁掉超出部分
+        let scale: Double
+        if srcWidth > srcHeight {
+            scale = DisplayFitRelay.current
+                ? min(Double(outWidth) / Double(srcWidth),
+                      Double(outHeight) / Double(srcHeight))
+                : max(Double(outWidth) / Double(srcWidth),
+                      Double(outHeight) / Double(srcHeight))
+        } else {
+            scale = min(Double(outWidth) / Double(srcWidth),
+                        Double(outHeight) / Double(srcHeight))
+        }
         let dw = Double(srcWidth) * scale
         let dh = Double(srcHeight) * scale
         let dx = (Double(outWidth) - dw) / 2

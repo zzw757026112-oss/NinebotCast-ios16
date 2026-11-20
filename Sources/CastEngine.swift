@@ -102,7 +102,14 @@ final class CastEngine: ObservableObject {
         }
         photoBuffer = FrameRenderer.drawImage(
             photoImage, rotation: photoRotation,
-            width: preset.width, height: preset.height)
+            width: preset.width, height: preset.height,
+            fit: UserDefaults.standard.bool(forKey: "nbc.displayFit"))
+    }
+
+    /// 完整显示开关变了：照片源是静态 buffer，要重建才生效；
+    /// 视频/摄像头每帧现算，开关下一帧就生效，不用管。
+    func refreshDisplayFit() {
+        rebuildPhotoBuffer()
     }
 
     private func teardownSources() {
