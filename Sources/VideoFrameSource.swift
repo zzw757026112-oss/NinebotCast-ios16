@@ -154,7 +154,8 @@ final class VideoFrameSource {
         case 270: ci = ci.oriented(.left)
         default: break
         }
-        ci = FrameRenderer.aspectFillTransform(ci, destWidth: width, destHeight: height)
+        ci = FrameRenderer.aspectFillTransform(ci, destWidth: width, destHeight: height,
+                                               fit: UserDefaults.standard.bool(forKey: "nbc.displayFit"))
         ciContext.render(ci, to: dest,
                          bounds: CGRect(x: 0, y: 0, width: width, height: height),
                          colorSpace: CGColorSpaceCreateDeviceRGB())
