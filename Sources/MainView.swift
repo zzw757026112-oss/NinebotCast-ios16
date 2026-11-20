@@ -92,7 +92,6 @@ struct MainView: View {
                     licenseCard
                     metricsCard
                     diagCard
-                    footer
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 6)
@@ -965,24 +964,6 @@ struct MainView: View {
                     .foregroundColor(.secondary)
             }
         }
-    }
-
-    // 项目主页：点开用 Safari 打开 GitHub 仓库
-    private static let projectURL = URL(string: "https://github.com/zzw757026112-oss/NinebotPro-ios16")!
-
-    private var footer: some View {
-        VStack(spacing: 6) {
-            Link(destination: Self.projectURL) {
-                HStack(spacing: 4) {
-                    Image(systemName: "link")
-                    Text("点击打开项目")
-                    Image(systemName: "arrow.up.forward.app")
-                }
-                .font(.caption.weight(.medium))
-                .foregroundColor(accent)
-            }
-        }
-        .padding(.top, 4)
     }
 
     // MARK: - 底部主按钮
