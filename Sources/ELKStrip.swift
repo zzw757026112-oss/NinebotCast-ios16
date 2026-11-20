@@ -12,8 +12,11 @@ import Foundation
 /// 名字以 melk/modelx 开头的设备做登录）。
 /// 只编进主 App（Sources/），扩展进程绝不能建 CBCentralManager。
 ///
-/// 链路：扫描 FFF0 服务 → 收 3 秒选 RSSI 最强的一台 → 发现
-/// FFF0/FFF3/FFF4 → 订阅 FFF4 通知 → 发一次查询 → 就绪。
+/// 链路：扫描 FFF0 服务、只认名字含 bledob 的设备 → 收 3 秒选
+/// RSSI 最强的一台 → 发现 FFF0/FFF3/FFF4 → 订阅 FFF4 通知 →
+/// 发一次查询 → 就绪。FFF0 是通用 BLE 串口服务，打印机也广播，
+/// 只凭服务会抓错设备（1.3.0 就抓到过 Printer_DE40，连上后
+/// 找不到 FFF0 又断开、无限循环），所以必须看名字。
 /// 名字是通用型号名：邻居家有个同型号控制器也叫这个名字，
 /// 所以必须按信号最强选，卡片上显示设备名 + RSSI，开关一按、
 /// 看车灯变不变就知道连的是不是自己车上的灯。
@@ -210,11 +213,14 @@ final class ELKStrip: NSObject, ObservableObject, CBCentralManagerDelegate, CBPe
 
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
                         advertisementData: [String: Any], rssi RSSI: NSNumber) {
-        let name = peripheral.name ?? ""
-        let isBLEDOB = name.lowercased().contains("bledob")
-        let services = advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []
-        let hasService = services.contains(Self.serviceUUID)
-        guard isBLEDOB || hasService else { return }
+        // 只认名字含 bledob 的设备：FFF0 是通用 BLE 串口服务，
+        // 打印机也广播（1.3.0 抓到过 Printer_DE40），只凭服务
+        // 会抓错设备。名字先取 peripheral.name，取不到就取
+        // 广播里的本地名；两个都没有名字的一律跳过。
+        let name = peripheral.name
+            ?? advertisementData[CBAdvertisementDataLocalNameKey] as? String
+            ?? ""
+        guard name.lowercased().contains("bledob") else { return }
         candidates[peripheral.identifier] = (peripheral, RSSI.intValue)
     }
 
