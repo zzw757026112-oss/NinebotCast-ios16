@@ -79,13 +79,6 @@ final class CastEngine: ObservableObject {
     private var lastSampleFrames = 0
     private var statTicks = 0
 
-    /// 帧/包累计（内部计数，只在 videoQueue 上加；@Published 的
-    /// sentFrames/sentPackets 由每秒一次的 statTimer 同步，见 startStats。
-    /// 1.3.9：原来每编完一帧就改 @Published，20fps 时每秒 20 次逼
-    /// MainView 整个 body 重算，滑动卡；改成每秒同步一次。）
-    private var sentFramesTotal = 0
-    private var sentPacketsTotal = 0
-
     init() {
         callbackQueue.setSpecific(key: queueKey, value: 1)
     }
@@ -109,14 +102,7 @@ final class CastEngine: ObservableObject {
         }
         photoBuffer = FrameRenderer.drawImage(
             photoImage, rotation: photoRotation,
-            width: preset.width, height: preset.height,
-            mode: UserDefaults.standard.integer(forKey: "nbc.displayMode"))
-    }
-
-    /// 显示模式变了：照片源是静态 buffer，要重建才生效；
-    /// 视频/摄像头每帧现算，下一帧就生效，不用管。
-    func refreshDisplayFit() {
-        rebuildPhotoBuffer()
+            width: preset.width, height: preset.height)
     }
 
     private func teardownSources() {
@@ -299,8 +285,6 @@ final class CastEngine: ObservableObject {
                 pendingPackets.removeAll()
                 sendCursor = 0
                 loggedFirstFrame = false
-                sentFramesTotal = 0
-                sentPacketsTotal = 0
             }
             startPacer()
             startStats()
@@ -360,19 +344,10 @@ final class CastEngine: ObservableObject {
         kcpTimer?.cancel(); kcpTimer = nil
         pacerTimer?.cancel(); pacerTimer = nil
         statTimer?.cancel(); statTimer = nil
-        // 内部累计在这里取走并清零（videoQueue 上串行，不会跟
-        // 在飞的 handleEncodedFrame 撞上）；日志用它，比每秒
-        // 才同步一次的 @Published 准（1.3.9）。
-        var totalFrames = 0
-        var totalPackets = 0
         videoQueue.sync {
             packer = nil
             pendingPackets.removeAll()
             sendCursor = 0
-            totalFrames = sentFramesTotal
-            totalPackets = sentPacketsTotal
-            sentFramesTotal = 0
-            sentPacketsTotal = 0
         }
         kcpChannel = nil
         isRunning = false
@@ -399,7 +374,7 @@ final class CastEngine: ObservableObject {
             statusText = "已停止"
         }
         if pingCounter > 0 {
-            Diag.log("stop：累计 \(totalFrames) 帧 / \(totalPackets) 包，pong \(rtcpPongCount) 次，背压跳过 \(skippedByBackpressure) 次，积压丢弃 \(backlogDrops) 次")
+            Diag.log("stop：累计 \(sentFrames) 帧 / \(sentPackets) 包，pong \(rtcpPongCount) 次，背压跳过 \(skippedByBackpressure) 次，积压丢弃 \(backlogDrops) 次")
         }
     }
 
@@ -514,10 +489,10 @@ final class CastEngine: ObservableObject {
                 self.pendingPackets.append(contentsOf: packets)
             }
             let packetCount = packets.count * copies
-            // 只加内部计数（videoQueue 上），不碰 @Published；
-            // 每秒一次的 statTimer 再同步到界面（1.3.9，修滑动卡顿）。
-            self.sentFramesTotal += 1
-            self.sentPacketsTotal += packetCount
+            DispatchQueue.main.async {
+                self.sentFrames += 1
+                self.sentPackets += packetCount
+            }
 
             if !self.loggedFirstFrame {
                 self.loggedFirstFrame = true
@@ -571,16 +546,14 @@ final class CastEngine: ObservableObject {
         timer.schedule(deadline: .now() + 1, repeating: .seconds(1))
         timer.setEventHandler { [weak self] in
             guard let self else { return }
+            self.measuredFps = max(0, self.sentFrames - self.lastSampleFrames)
+            self.lastSampleFrames = self.sentFrames
             self.videoQueue.async {
                 let frames = self.framesWindow
                 let bytes = self.bytesWindow
                 let packets = self.packetsWindow
                 let backlog = self.pendingPackets.count - self.sendCursor
                 let drops = self.backlogDrops
-                // 内部累计（videoQueue 上加）在这里一次性取走，
-                // 主线程再同步到 @Published，界面每秒刷新一次（1.3.9）。
-                let totalFrames = self.sentFramesTotal
-                let totalPackets = self.sentPacketsTotal
                 self.framesWindow = 0
                 self.bytesWindow = 0
                 self.packetsWindow = 0
@@ -589,10 +562,6 @@ final class CastEngine: ObservableObject {
                 let skipped = self.skippedByBackpressure
                 self.inflightLock.unlock()
                 DispatchQueue.main.async {
-                    self.measuredFps = max(0, totalFrames - self.lastSampleFrames)
-                    self.lastSampleFrames = totalFrames
-                    self.sentFrames = totalFrames
-                    self.sentPackets = totalPackets
                     self.avgFrameKB = frames > 0 ? bytes / frames / 1024 : 0
                     self.backlogPackets = backlog
                     self.droppedFrames = drops + self.skippedByBackpressure
