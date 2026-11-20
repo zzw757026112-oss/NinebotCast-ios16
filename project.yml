@@ -25,6 +25,7 @@ targets:
       - path: Vendor/kcp
       - path: Shared/HUDOverlay.swift
       - path: Shared/OrientationRelay.swift
+      - path: Shared/DisplayFitRelay.swift
       - path: Shared/HUDSettingsRelay.swift
       - path: Shared/HUDDataRelay.swift
       - path: Shared/ANTBMSRelay.swift
@@ -42,8 +43,8 @@ targets:
       path: Support/Info.plist
       properties:
         CFBundleDisplayName: Ninebot Pro+
-        CFBundleShortVersionString: "1.3.6"
-        CFBundleVersion: "60"
+        CFBundleShortVersionString: "1.3.7"
+        CFBundleVersion: "61"
         UILaunchScreen: {}
         UIBackgroundModes: [audio, bluetooth-central, location]
         NSLocalNetworkUsageDescription: 用于连接九号仪表并发送投屏画面（UDP 5012/5013）。
@@ -68,6 +69,7 @@ targets:
           - README.md
       - path: Shared/HUDOverlay.swift
       - path: Shared/OrientationRelay.swift
+      - path: Shared/DisplayFitRelay.swift
       - path: Shared/HUDSettingsRelay.swift
       - path: Shared/HUDDataRelay.swift
       - path: Shared/ANTBMSRelay.swift
@@ -80,8 +82,8 @@ targets:
       path: Broadcast/Info.plist
       properties:
         CFBundleDisplayName: Ninebot Pro+
-        CFBundleShortVersionString: "1.3.6"
-        CFBundleVersion: "60"
+        CFBundleShortVersionString: "1.3.7"
+        CFBundleVersion: "61"
         # NSExtension MUST live here: xcodegen writes only the
         # properties into the plist, so the NSExtension dict that
         # used to live only in Broadcast/Info.plist was lost and
