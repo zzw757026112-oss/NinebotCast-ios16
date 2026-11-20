@@ -12,11 +12,15 @@ import Foundation
 /// 名字以 melk/modelx 开头的设备做登录）。
 /// 只编进主 App（Sources/），扩展进程绝不能建 CBCentralManager。
 ///
-/// 链路：扫描 FFF0 服务、只认名字含 bledob 的设备 → 收 3 秒选
-/// RSSI 最强的一台 → 发现 FFF0/FFF3/FFF4 → 订阅 FFF4 通知 →
-/// 发一次查询 → 就绪。FFF0 是通用 BLE 串口服务，打印机也广播，
-/// 只凭服务会抓错设备（1.3.0 就抓到过 Printer_DE40，连上后
-/// 找不到 FFF0 又断开、无限循环），所以必须看名字。
+/// 链路：全量扫描附近蓝牙设备、只认名字含 bledob 的设备 →
+/// 收 3 秒选 RSSI 最强的一台 → 发现 FFF0/FFF3/FFF4 → 订阅
+/// FFF4 通知 → 发一次查询 → 就绪。**不要用 withServices:
+/// [FFF0] 只扫 FFF0——灯带的广播里不一定带 FFF0（只带名字），
+/// 1.3.0/1.3.1 就是这么扫的：用户坐在车上、duoCo 完全没运行，
+/// 灯带也扫不到，只抓到远处广播带 FFF0 的打印机
+/// Printer_DE40，连上后找不到 FFF0 又断开、无限循环；duoCo
+/// 是按名字扫的，所以它能找到灯带。**FFF0 还是通用 BLE 串口
+/// 服务，打印机也广播，只凭服务会抓错设备，所以必须看名字。
 /// 名字是通用型号名：邻居家有个同型号控制器也叫这个名字，
 /// 所以必须按信号最强选，卡片上显示设备名 + RSSI，开关一按、
 /// 看车灯变不变就知道连的是不是自己车上的灯。
@@ -147,7 +151,7 @@ final class ELKStrip: NSObject, ObservableObject, CBCentralManagerDelegate, CBPe
         candidates.removeAll()
         isScanning = true
         stage = "搜索中"
-        central.scanForPeripherals(withServices: [Self.serviceUUID], options: nil)
+        central.scanForPeripherals(withServices: nil, options: nil)
         scanTimer?.invalidate()
         scanTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { [weak self] _ in
             self?.finishScan()
