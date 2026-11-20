@@ -360,6 +360,11 @@ final class ANTBMS: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeri
             return
         }
         p.writeValue(Self.pollCommand, for: ch, type: .withoutResponse)
+        // 朋友版 102：每轮再读一次 FFE1——睡着的保护板不理“写”，但“读”
+        // 是必须回的请求。23:12 实测：连接时那次读拿到了第一帧（178B），
+        // 之后只写就再没回包（19 次 0 新字节）。读写都做，读回来的值
+        // 也走 didUpdateValueFor。
+        p.readValue(for: ch)
         // 没回包时每 10 次补一次带回应写入，看写入本身通不通。
         if pollCount % 10 == 0, rxBytes == 0 {
             p.writeValue(Self.pollCommand, for: ch, type: .withResponse)
