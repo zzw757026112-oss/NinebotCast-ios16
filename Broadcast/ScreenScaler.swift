@@ -18,14 +18,8 @@ private enum MirrorRotation {
 
 /// 把录屏帧缩放到 848x480，复用目标 buffer。
 ///
-/// 横屏源（宽 > 高，如手机横过来）：三档，按 DisplayFitRelay.current：
-///   0 铺满（fill，默认）——按大边缩放、居中裁掉多余的两边，铺满整个仪表，
-///     没有黑边。代价是左右各裁掉约 9% 的画面。
-///   1 完整（fit）——按小边缩放，整幅画面都可见，上下各留约 44px 黑边。
-///   2 拉伸（stretch）——横竖独立缩放，整幅画面硬拉到 848x480，无裁剪无黑边，
-///     横向压到约 0.815，画面略压扁。
-/// 几何原因：iPhone 竖屏 1290x2796，270° 翻转后是 2796x1290（2.17:1），
-/// 仪表是 848x480（1.77:1），铺满、完整、拉伸三者没法同时满足。
+/// 横屏源（宽 > 高，如手机横过来）：裁满（fill）——按大边缩放、居中裁掉
+/// 多余的两边，铺满整个仪表，没有黑边。代价是左右各裁掉约 9% 的画面。
 /// 竖屏源：保持 fit（整屏可见、两边黑边），因为竖屏画面裁满会把上下
 /// 裁掉四分之三，没法看；竖屏在横屏仪表上本来就是中间一条竖条。
 ///
@@ -82,7 +76,7 @@ final class ScreenScaler {
         let dest = pool[nextIndex]
         nextIndex = (nextIndex + 1) % pool.count
 
-        // 横屏内容存在竖帧里时先转正（方向见 rotationNeeded），再按模式缩放。
+        // 横屏内容存在竖帧里时先转正（方向见 rotationNeeded），再裁满。
         // 只有竖帧才可能需要转；横帧直接走下面的缩放。
         if let rotation = rotationNeeded(srcWidth: srcWidth, srcHeight: srcHeight) {
             if lastRotation != rotation {
@@ -102,16 +96,9 @@ final class ScreenScaler {
 
         let format = CVPixelBufferGetPixelFormatType(src)
         if format == kCVPixelFormatType_32BGRA {
-            // 横屏：按模式走 fill / fit / stretch；竖屏 fit
+            // 横屏裁满、竖屏 fit
             if srcWidth > srcHeight {
-                switch DisplayFitRelay.current {
-                case DisplayFitRelay.modeFit:
-                    return scaleBGRA(src, srcWidth: srcWidth, srcHeight: srcHeight, dest: dest)
-                case DisplayFitRelay.modeStretch:
-                    return scaleStretchBGRA(src, srcWidth: srcWidth, srcHeight: srcHeight, dest: dest)
-                default:
-                    return scaleFillBGRA(src, srcWidth: srcWidth, srcHeight: srcHeight, dest: dest)
-                }
+                return scaleFillBGRA(src, srcWidth: srcWidth, srcHeight: srcHeight, dest: dest)
             }
             return scaleBGRA(src, srcWidth: srcWidth, srcHeight: srcHeight, dest: dest)
         }
@@ -158,11 +145,8 @@ final class ScreenScaler {
         return nil
     }
 
-    /// 转正 + 按模式缩放，一步在 CoreImage 里完成，不用开整帧大 buffer
+    /// 转正 + 裁满，一步在 CoreImage 里完成，不用开整帧大 buffer
     /// （竖帧全尺寸约 14MB，扩展内存预算只有约 50MB）。
-    /// 铺满取大边（裁两边），完整显示取小边（留上下黑边），拉伸横竖独立缩放
-    /// （硬拉到 848x480，无裁剪无黑边）。fit 时画面缩进中间，dest 已事先涂黑，
-    /// 黑边就是底色；拉伸时画面正好铺满，tx/ty 为 0。
     /// CoreImage 里正角度是逆时针（y 朝上坐标系）。
     private func scaleRotated(_ src: CVPixelBuffer, srcWidth: Int, srcHeight: Int,
                               rotation: MirrorRotation, dest: CVPixelBuffer) -> CVPixelBuffer? {
@@ -179,24 +163,11 @@ final class ScreenScaler {
             .translatedBy(x: -cx, y: -cy)
         let image = CIImage(cvPixelBuffer: src).transformed(by: rot)
         let r = image.extent // 转正后是 H x W，中心仍在 (cx, cy)
-        // 拉伸：横竖独立缩放；否则铺满取大边、完整显示取小边
-        let mode = DisplayFitRelay.current
-        let scaleX: Double
-        let scaleY: Double
-        if mode == DisplayFitRelay.modeStretch {
-            scaleX = Double(outWidth) / r.width
-            scaleY = Double(outHeight) / r.height
-        } else {
-            let s = mode == DisplayFitRelay.modeFit
-                ? min(Double(outWidth) / r.width, Double(outHeight) / r.height)
-                : max(Double(outWidth) / r.width, Double(outHeight) / r.height)
-            scaleX = s
-            scaleY = s
-        }
-        let tx = (Double(outWidth) - r.width * scaleX) / 2 - Double(r.origin.x) * scaleX
-        let ty = (Double(outHeight) - r.height * scaleY) / 2 - Double(r.origin.y) * scaleY
+        let scale = max(Double(outWidth) / r.width, Double(outHeight) / r.height)
+        let tx = (Double(outWidth) - r.width * scale) / 2 - Double(r.origin.x) * scale
+        let ty = (Double(outHeight) - r.height * scale) / 2 - Double(r.origin.y) * scale
         let final = image
-            .transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
+            .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
             .transformed(by: CGAffineTransform(translationX: tx, y: ty))
 
         CVPixelBufferLockBaseAddress(dest, [])
@@ -246,37 +217,6 @@ final class ScreenScaler {
         let err = vImageScale_ARGB8888(&srcBuf, &destBuf, nil, vImage_Flags(kvImageNoFlags))
         guard err == kvImageNoError else {
             log.error("vImageScale 失败 \(err)")
-            return nil
-        }
-        return dest
-    }
-
-    // MARK: - vImage 拉伸（横屏：整幅画面硬拉到 848x480，无裁剪无黑边，横向略压扁）
-
-    private func scaleStretchBGRA(_ src: CVPixelBuffer, srcWidth: Int, srcHeight: Int,
-                                  dest: CVPixelBuffer) -> CVPixelBuffer? {
-        CVPixelBufferLockBaseAddress(src, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(src, .readOnly) }
-        CVPixelBufferLockBaseAddress(dest, [])
-        defer { CVPixelBufferUnlockBaseAddress(dest, []) }
-
-        guard let srcBase = CVPixelBufferGetBaseAddress(src),
-              let destBase = CVPixelBufferGetBaseAddress(dest) else { return nil }
-        let srcRowBytes = CVPixelBufferGetBytesPerRow(src)
-        let destRowBytes = CVPixelBufferGetBytesPerRow(dest)
-
-        // 直接缩进 dest（848x480，整块都是画面，不用涂黑、不用临时 buffer）
-        var srcBuf = vImage_Buffer(data: srcBase,
-                                   height: vImagePixelCount(srcHeight),
-                                   width: vImagePixelCount(srcWidth),
-                                   rowBytes: srcRowBytes)
-        var destBuf = vImage_Buffer(data: destBase,
-                                    height: vImagePixelCount(outHeight),
-                                    width: vImagePixelCount(outWidth),
-                                    rowBytes: destRowBytes)
-        let err = vImageScale_ARGB8888(&srcBuf, &destBuf, nil, vImage_Flags(kvImageNoFlags))
-        guard err == kvImageNoError else {
-            log.error("vImageScale（拉伸）失败 \(err)")
             return nil
         }
         return dest
@@ -338,32 +278,14 @@ final class ScreenScaler {
 
     private func scaleViaCoreImage(_ src: CVPixelBuffer, srcWidth: Int, srcHeight: Int,
                                    dest: CVPixelBuffer) -> CVPixelBuffer? {
-        // 横屏：铺满（fill）/ 完整（fit）/ 拉伸（stretch，看模式）、竖屏 fit；
-        // 裁满时 dx/dy 为负，render 时按 bounds 裁掉超出部分；
-        // 拉伸时横竖独立缩放，dw/dh 正好等于目标尺寸，dx/dy 为 0。
-        let mode = DisplayFitRelay.current
-        let scaleX: Double
-        let scaleY: Double
-        if srcWidth > srcHeight, mode == DisplayFitRelay.modeStretch {
-            scaleX = Double(outWidth) / Double(srcWidth)
-            scaleY = Double(outHeight) / Double(srcHeight)
-        } else {
-            let scale: Double
-            if srcWidth > srcHeight {
-                scale = mode == DisplayFitRelay.modeFit
-                    ? min(Double(outWidth) / Double(srcWidth),
-                          Double(outHeight) / Double(srcHeight))
-                    : max(Double(outWidth) / Double(srcWidth),
-                          Double(outHeight) / Double(srcHeight))
-            } else {
-                scale = min(Double(outWidth) / Double(srcWidth),
-                            Double(outHeight) / Double(srcHeight))
-            }
-            scaleX = scale
-            scaleY = scale
-        }
-        let dw = Double(srcWidth) * scaleX
-        let dh = Double(srcHeight) * scaleY
+        // 横屏裁满、竖屏 fit；裁满时 dx/dy 为负，render 时按 bounds 裁掉超出部分
+        let scale = srcWidth > srcHeight
+            ? max(Double(outWidth) / Double(srcWidth),
+                  Double(outHeight) / Double(srcHeight))
+            : min(Double(outWidth) / Double(srcWidth),
+                  Double(outHeight) / Double(srcHeight))
+        let dw = Double(srcWidth) * scale
+        let dh = Double(srcHeight) * scale
         let dx = (Double(outWidth) - dw) / 2
         let dy = (Double(outHeight) - dh) / 2
 
@@ -373,7 +295,7 @@ final class ScreenScaler {
         memset(destBase, 0, CVPixelBufferGetBytesPerRow(dest) * outHeight)
 
         let image = CIImage(cvPixelBuffer: src)
-            .transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
+            .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
             .transformed(by: CGAffineTransform(translationX: dx, y: dy))
         ciContext.render(image, to: dest,
                          bounds: CGRect(x: 0, y: 0, width: outWidth, height: outHeight),

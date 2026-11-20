@@ -17,9 +17,6 @@ final class SampleHandler: RPBroadcastSampleHandler {
         // 方向接力：App 发 Darwin 通知告诉扩展现在手机是横是竖
         //（扩展自己在 iOS 16 下测不到），越早订阅越好。
         OrientationRelay.startObserving()
-        // 完整显示接力：App 发 Darwin 通知告诉扩展用户开了完整显示
-        //（扩展自己读不到 App 的设置），越早订阅越好。1.3.7 新增。
-        DisplayFitRelay.startObserving()
         // HUD 设置接力：App 发 Darwin 通知告诉扩展用户选的显示项、
         // 位置、字号（扩展自己读不到 App 的设置），越早订阅越好。
         HUDSettingsRelay.startObserving()
@@ -28,8 +25,6 @@ final class SampleHandler: RPBroadcastSampleHandler {
         HUDDataRelay.startObserving()
         // ANT BMS 接力：订阅电池数据的 5 组名字，越早订阅越好。1.2.0 新增。
         ANTBMSRelay.startObserving()
-        // 车速接力：订阅速度 + 超速标志，超速时 HUD 画红行。1.2.9 新增。
-        SpeedRelay.startObserving()
     }
 
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {

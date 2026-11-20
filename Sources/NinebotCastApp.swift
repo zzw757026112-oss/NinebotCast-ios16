@@ -13,9 +13,6 @@ struct NinebotProPlusApp: App {
         //（扩展自己在 iOS 16 下测不到方向，横屏镜像会一直是竖条）。
         // 后台音频保活活着时也会继续发；发通知很轻，不会崩。
         OrientationRelay.startPosting()
-        // 完整显示接力：同上，把镜像卡片里「完整显示」开关发给录屏扩展
-        //（扩展自己读不到 App 的设置）。1.3.7 新增。
-        DisplayFitRelay.startPosting()
         // HUD 设置接力：同上，把用户在 HUD 设置卡片里选的显示项、
         // 位置、字号发给录屏扩展（扩展自己读不到 App 的设置）。
         HUDSettingsRelay.startPosting()
@@ -40,17 +37,6 @@ struct NinebotProPlusApp: App {
         if UserDefaults.standard.bool(forKey: "nbc.antbms.enabled") {
             _ = ANTBMS.shared
         }
-        // 七彩日行灯（1.3.0）：同上，灯开关开着时建一份 ELKStrip，
-        // 让系统在后台把被杀的 App 拉起来时能恢复 BLE 会话。
-        if UserDefaults.standard.bool(forKey: "nbc.elk.enabled") {
-            _ = ELKStrip.shared
-        }
-        // 骑行记录（1.2.9）：建一份 RideTracker，App 被杀时进行中的
-        // 骑行 30 分钟内能续上（current-ride.json）。
-        _ = RideTracker.shared
-        // 超速提醒通知（1.3.8）：挂前台横幅 delegate + 请求通知授权
-        //（已决定过就是空操作，不会重复弹；用户可能早就开着提醒）。
-        OverspeedNotifier.setup()
         // 下面这行必须有：HUDData 是懒加载的，镜像时主 App 进程自己
         // 不画帧、永远不会创建它，tick() 也就不会跑，中继没数据可发。
         // 启动时就建一份，让它的每秒 tick 在后台保活里一直跑。
