@@ -18,6 +18,7 @@ enum AppVersion {
 struct MainView: View {
     @StateObject private var engine = CastEngine()
     @StateObject private var antbms = ANTBMS.shared
+    @StateObject private var ride = RideTracker.shared
     @Environment(\.colorScheme) private var scheme
 
     // 授权门（App 持有）：授权卡片显示状态、更换授权码用。
@@ -41,6 +42,8 @@ struct MainView: View {
     @AppStorage("nbc.hud.position") private var hudPosition = 0 // 0 右下 1 左下 2 左上 3 右上
     @AppStorage("nbc.hud.fontSize") private var hudFontSize = 1 // 0 小 1 中 2 大
     @AppStorage("nbc.keepAlive") private var keepAlive = true
+    @AppStorage("nbc.speedLimit") private var speedLimit = 60 // 限速 km/h：40/50/60/70/80
+    @AppStorage("nbc.speedAlert") private var speedAlert = true
     @State private var gopIndex = 25            // 关键帧间隔（帧）
     @State private var fpsIndex = 20
     @State private var bitrateIndex = 1200      // kbps
@@ -49,6 +52,7 @@ struct MainView: View {
     @State private var showTools = false
     @State private var showAdvanced = false
     @State private var showDiag = false
+    @State private var showRideHistory = false
     @State private var scanning = false
     @State private var tcpScanning = false
     @State private var probing = false
@@ -89,6 +93,7 @@ struct MainView: View {
                     mirrorCard
                     hudCard
                     bmsCard
+                    rideCard
                     licenseCard
                     metricsCard
                     diagCard
@@ -693,6 +698,108 @@ struct MainView: View {
         }
     }
 
+    // MARK: - 骑行记录（GPS，不接车，1.2.9）
+    // 开始/结束手动点；骑行中每 10 米记一个点，算里程、时长、
+    // 当前速度和最高速度。超速提醒在下面设限速；历史存在本地。
+    private var rideCard: some View {
+        card("骑行记录", icon: "map") {
+            HStack(spacing: 12) {
+                Button {
+                    if ride.riding { ride.stop() } else { ride.start() }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: ride.riding ? "stop.fill" : "play.fill")
+                            .font(.system(size: 13, weight: .bold))
+                        Text(ride.riding ? "结束骑行" : "开始骑行")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 11)
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(ride.riding ? Color.red : accent))
+                    .foregroundColor(.white)
+                }
+                .buttonStyle(.plain)
+                if ride.overspeed {
+                    Text("超速！")
+                        .font(.headline)
+                        .foregroundColor(.red)
+                }
+            }
+            if ride.riding {
+                HStack(spacing: 0) {
+                    metric(formatClock(ride.elapsedSec), "时长")
+                    divider
+                    metric(formatDistance(ride.distanceM), "里程")
+                    divider
+                    metric("\(Int(ride.currentSpeedKmh))", "当前 km/h")
+                    divider
+                    metric("\(Int(ride.maxSpeedKmh))", "最高 km/h")
+                }
+                Text("退后台也继续记（定位后台模式已开）；锁屏和灵动岛上能看到实时速度和里程。")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            } else if ride.locationDenied {
+                Text("定位未授权：去系统设置里打开 Ninebot Pro+ 的定位，骑行记录和天气都要用它。")
+                    .font(.caption2)
+                    .foregroundColor(.red)
+            } else {
+                Text("用手机 GPS 记骑行：里程、时长、最高速度和平均速度，不用接车。App 被杀后 30 分钟内重开能续上。")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+            HStack {
+                Text("限速").font(.subheadline)
+                Spacer()
+                Picker("", selection: $speedLimit) {
+                    Text("40").tag(40)
+                    Text("50").tag(50)
+                    Text("60").tag(60)
+                    Text("70").tag(70)
+                    Text("80").tag(80)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 200)
+            }
+            Toggle("超速提醒（震动 + 提示音，仪表 HUD 变红）", isOn: $speedAlert)
+                .font(.subheadline)
+            if !ride.rides.isEmpty {
+                DisclosureGroup(isExpanded: $showRideHistory) {
+                    List {
+                        ForEach(ride.rides) { r in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(r.startTime, format: .dateTime.month().day().hour().minute())
+                                        .font(.subheadline.weight(.medium))
+                                    Text("\(formatDistance(r.distanceM)) · \(formatDuration(r.durationSec))")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                Spacer()
+                                VStack(alignment: .trailing, spacing: 3) {
+                                    Text("最高 \(Int(r.maxSpeedKmh)) km/h")
+                                        .font(.caption)
+                                    Text("平均 \(Int(r.avgSpeedKmh)) km/h")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+                        .onDelete { offsets in
+                            for i in offsets { ride.deleteRide(id: ride.rides[i].id) }
+                        }
+                    }
+                    .listStyle(.plain)
+                    .frame(height: CGFloat(min(ride.rides.count, 5)) * 56 + 8)
+                } label: {
+                    Text("历史记录（\(ride.rides.count) 次）")
+                        .font(.caption.weight(.medium))
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+
     // MARK: - 授权（状态 + 更换授权码）
     // 1.1.3 的教训：App 里激活了，扩展却读不到码（钥匙串访问组
     // 不同），主界面又没有输入框，用户卡死。这里常驻一个入口，
@@ -912,6 +1019,27 @@ struct MainView: View {
 
     private var fpsLabel: String { fpsIndex == 0 ? "预设帧率" : "\(fpsIndex)fps" }
     private var bitrateLabel: String { bitrateIndex == 0 ? "预设码率" : "\(bitrateIndex)kbps" }
+
+    /// 骑行时长（中文）：12秒 / 12分34秒 / 1小时23分
+    private func formatDuration(_ sec: Int) -> String {
+        let h = sec / 3600, m = (sec % 3600) / 60, s = sec % 60
+        if h > 0 { return String(format: "%d小时%02d分", h, m) }
+        if m > 0 { return String(format: "%d分%02d秒", m, s) }
+        return "\(s)秒"
+    }
+
+    /// 骑行时长（紧凑）：12:34 / 1:23:45（实时统计行用）
+    private func formatClock(_ sec: Int) -> String {
+        let h = sec / 3600, m = (sec % 3600) / 60, s = sec % 60
+        if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
+        return String(format: "%d:%02d", m, s)
+    }
+
+    /// 里程：850 m / 12.3 km
+    private func formatDistance(_ meters: Double) -> String {
+        if meters < 1000 { return String(format: "%.0f m", meters) }
+        return String(format: "%.1f km", meters / 1000)
+    }
 
     /// 画质档位 = 帧率 + 码率 + GOP 的组合，一键设定
     private func applyQuality(_ value: Int) {

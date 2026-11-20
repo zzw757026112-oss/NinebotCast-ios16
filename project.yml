@@ -28,9 +28,12 @@ targets:
       - path: Shared/HUDSettingsRelay.swift
       - path: Shared/HUDDataRelay.swift
       - path: Shared/ANTBMSRelay.swift
+      - path: Shared/SpeedRelay.swift
+      - path: Shared/RideActivity.swift
       - path: Shared/LicenseManager.swift
     dependencies:
       - target: ScreenCast
+      - target: LiveActivityWidget
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.corpsezhao.ninebotcast
@@ -41,15 +44,18 @@ targets:
       path: Support/Info.plist
       properties:
         CFBundleDisplayName: Ninebot Pro+
-        CFBundleShortVersionString: "1.2.8"
-        CFBundleVersion: "52"
+        CFBundleShortVersionString: "1.2.9"
+        CFBundleVersion: "53"
         UILaunchScreen: {}
-        UIBackgroundModes: [audio, bluetooth-central]
+        NSSupportsLiveActivities: true
+        NSSupportsLiveActivitiesFrequentUpdates: true
+        UIBackgroundModes: [audio, bluetooth-central, location]
         NSLocalNetworkUsageDescription: 用于连接九号仪表并发送投屏画面（UDP 5012/5013）。
         NSCameraUsageDescription: 用于摄像头画面投屏。
         NSPhotoLibraryUsageDescription: 用于相册图片和视频投屏。
         NSBluetoothAlwaysUsageDescription: 用于直连九号滑板车，读取速度、电量和电压，以及连接 ANT BMS 锂电池读取电池数据，显示在仪表上。
         NSLocationWhenInUseUsageDescription: 用于显示当地天气（按定位取天气，叠加到仪表画面上）。
+        NSLocationAlwaysAndWhenInUseUsageDescription: 骑行记录需要在后台持续定位（骑行时退后台也继续记里程和速度）；只在骑行时用，不会一直跑定位。
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
@@ -69,6 +75,7 @@ targets:
       - path: Shared/HUDSettingsRelay.swift
       - path: Shared/HUDDataRelay.swift
       - path: Shared/ANTBMSRelay.swift
+      - path: Shared/SpeedRelay.swift
       - path: Shared/LicenseManager.swift
     settings:
       base:
@@ -77,8 +84,8 @@ targets:
       path: Broadcast/Info.plist
       properties:
         CFBundleDisplayName: Ninebot Pro+
-        CFBundleShortVersionString: "1.2.8"
-        CFBundleVersion: "52"
+        CFBundleShortVersionString: "1.2.9"
+        CFBundleVersion: "53"
         # NSExtension MUST live here: xcodegen writes only the
         # properties into the plist, so the NSExtension dict that
         # used to live only in Broadcast/Info.plist was lost and
@@ -87,6 +94,31 @@ targets:
         NSExtension:
           NSExtensionPointIdentifier: com.apple.broadcast-services-upload
           NSExtensionPrincipalClass: ScreenCast.SampleHandler
+
+  # 动态岛扩展（Live Activity，锁屏 + 灵动岛）：1.2.9 新增。
+  # 部署目标 iOS 16.1（ActivityKit 的最低版本）；主 App 还是 16.0，
+  # 16.0 的机器上扩展不加载、App 里所有 ActivityKit 调用都被
+  # if #available(iOS 16.1, *) 挡住，不会闪退。
+  LiveActivityWidget:
+    type: app-extension
+    platform: iOS
+    deploymentTarget:
+      iOS: "16.1"
+    sources:
+      - path: LiveActivity
+      - path: Shared/RideActivity.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.corpsezhao.ninebotcast.liveactivity
+    info:
+      path: LiveActivity/Info.plist
+      properties:
+        CFBundleDisplayName: Ninebot Pro+
+        CFBundleShortVersionString: "1.2.9"
+        CFBundleVersion: "53"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+          NSExtensionPrincipalClass: LiveActivityWidget.LiveActivityBundle
 
 schemes:
   "Ninebot Pro+":

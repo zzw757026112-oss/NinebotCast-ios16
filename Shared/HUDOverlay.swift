@@ -65,6 +65,13 @@ struct HUDSnapshot: Equatable {
     var calling: Bool
     var volume: Float // 手机音量 0...1，-1 = 未知
     var bms: BMSHUDData? // ANT BMS 读数（没数据就是 nil）
+    var speed: SpeedHUDData? // 超速行（只在骑行超速时才有值）
+}
+
+/// HUD 上超速行的数据（1.2.9，RideTracker → SpeedRelay 中继来）。
+struct SpeedHUDData: Equatable {
+    var kmh: Int
+    var overspeed: Bool
 }
 
 /// HUD 上 BMS 行的数据（电压/电流/功率/SOC/最高温/压差）。
@@ -98,6 +105,7 @@ final class HUDData: NSObject, CLLocationManagerDelegate, CXCallObserverDelegate
     private var _calling = false
     private var _volume: Float = -1
     private var _bms: BMSHUDData?
+    private var _speed: SpeedHUDData?
 
     private let dateFormatter: DateFormatter
     private var timer: DispatchSourceTimer?
@@ -155,7 +163,8 @@ final class HUDData: NSObject, CLLocationManagerDelegate, CXCallObserverDelegate
                            network: _network,
                            calling: _calling,
                            volume: _volume,
-                           bms: _bms)
+                           bms: _bms,
+                           speed: _speed)
     }
 
     // MARK: - 联网方式
@@ -230,12 +239,19 @@ final class HUDData: NSObject, CLLocationManagerDelegate, CXCallObserverDelegate
                              power: r.voltage * r.current, soc: r.soc,
                              maxTemp: r.maxTemp, delta: r.delta)
         }
+        // 超速（1.2.9）：RideTracker 只在骑行超速时发 SpeedRelay；
+        // 中继 3 秒过期就当没超速，红行消失。
+        var speed: SpeedHUDData?
+        if let r = SpeedRelay.current, r.overspeed {
+            speed = SpeedHUDData(kmh: r.speedKmh, overspeed: true)
+        }
         lock.lock()
         _batteryLevel = level
         _batteryCharging = (state == .charging || state == .full)
         _dateText = date
         _volume = volume
         _bms = bms
+        _speed = speed
         lock.unlock()
         refreshWeatherIfNeeded()
     }
@@ -458,7 +474,8 @@ enum HUDRenderer {
         let settings = HUDSettingsRelay.current
         let settingsKey = "\(settings.showDate ? 1 : 0)\(settings.showWeather ? 1 : 0)\(settings.showSignal ? 1 : 0)\(settings.showBattery ? 1 : 0)\(settings.showVolume ? 1 : 0)\(settings.showBMS ? 1 : 0)|\(settings.position.rawValue)|\(settings.fontSize.rawValue)"
         let bmsKey = snap.bms.map { "\($0.voltage)|\($0.current)|\($0.power)|\($0.soc)|\($0.maxTemp)|\($0.delta)" } ?? "-"
-        let key = "\(width)x\(height)|\(snap.date)|\(snap.weatherCode ?? -1)|\(snap.weatherTemp ?? -999)|\(snap.batteryLevel)|\(snap.charging ? 1 : 0)|\(snap.network.cacheKey)|\(snap.calling ? 1 : 0)|\(snap.volume)|\(bmsKey)|\(settingsKey)"
+        let speedKey = snap.speed.map { "\($0.kmh)" } ?? "-"
+        let key = "\(width)x\(height)|\(snap.date)|\(snap.weatherCode ?? -1)|\(snap.weatherTemp ?? -999)|\(snap.batteryLevel)|\(snap.charging ? 1 : 0)|\(snap.network.cacheKey)|\(snap.calling ? 1 : 0)|\(snap.volume)|\(bmsKey)|\(speedKey)|\(settingsKey)"
         lock.lock()
         defer { lock.unlock() }
         if key == cachedKey, let layer = cachedLayer { return layer }
@@ -505,7 +522,7 @@ enum HUDRenderer {
         return CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
     }
 
-    /// 把胶囊（最多四行：日期 / 天气信号音量电量 / BMS 两行）+ 来电红条画进一张全尺寸透明层。
+    /// 把胶囊（最多五行：日期 / 天气信号音量电量 / BMS 两行 / 超速）+ 来电红条画进一张全尺寸透明层。
     /// CGContext 在这里是 y 朝上的坐标系（与 TestImageSource 相同），
     /// 所以「离顶 xx」要换算成 baseline = 高 - 顶距 - 上伸。
     /// 设置全关、又没来电时返回一张全透明层（不是 nil），
@@ -586,6 +603,11 @@ enum HUDRenderer {
                     .text(String(format: "最高温 %d°", bms.maxTemp), white),
                     .text(String(format: "压差 %dmV", bms.delta), white)]
         }
+        // 第五行：超速红行（1.2.9，只在骑行超速时画）。
+        var row5: [Segment] = []
+        if let speed = snap.speed, speed.overspeed {
+            row5 = [.text("超速 \(speed.kmh) km/h", red)]
+        }
 
         // ---- 量每段宽度 ----
         // 段间间距：图标后面跟文字是“一组”（小间距），其余都是组间距。
@@ -617,7 +639,7 @@ enum HUDRenderer {
         }
 
         // 只画非空的行；行数决定胶囊高度（一行就矮一点）。
-        let measuredRows = [measure(row1), measure(row2), measure(row3), measure(row4)].filter { !$0.items.isEmpty }
+        let measuredRows = [measure(row1), measure(row2), measure(row3), measure(row4), measure(row5)].filter { !$0.items.isEmpty }
         // 全关了、又没来电：返回全透明层（旧胶囊随之消失）。
         if measuredRows.isEmpty && !snap.calling {
             return context.makeImage()

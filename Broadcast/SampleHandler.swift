@@ -25,6 +25,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
         HUDDataRelay.startObserving()
         // ANT BMS 接力：订阅电池数据的 5 组名字，越早订阅越好。1.2.0 新增。
         ANTBMSRelay.startObserving()
+        // 车速接力：订阅速度 + 超速标志，超速时 HUD 画红行。1.2.9 新增。
+        SpeedRelay.startObserving()
     }
 
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
