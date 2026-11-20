@@ -23,6 +23,20 @@ struct NinebotProPlusApp: App {
         // ANT BMS 接力：同上，每 2 秒把最新电池数据重发给录屏扩展
         //（扩展进程自己连不上 BLE）。1.2.0 新增。
         ANTBMSRelay.startPosting()
+        // 常驻后台保活（1.2.8）：启动就开静音音频，退后台进程也不挂起，
+        // BMS 轮询和接力继续走；默认开，可在运行状态卡片里关。
+        // 只在投屏时才禁自动锁屏，平时不禁。
+        if UserDefaults.standard.object(forKey: "nbc.keepAlive") == nil {
+            UserDefaults.standard.set(true, forKey: "nbc.keepAlive")
+        }
+        if UserDefaults.standard.bool(forKey: "nbc.keepAlive") {
+            BackgroundKeeper.shared.startAlwaysOn()
+        }
+        // 蓝牙恢复：如果 BMS 开关开着，建一份 ANTBMS 让系统在后台
+        // 把被杀的 App 拉起来时能恢复 BLE 会话（willRestoreState）。
+        if UserDefaults.standard.bool(forKey: "nbc.antbms.enabled") {
+            _ = ANTBMS.shared
+        }
         // 下面这行必须有：HUDData 是懒加载的，镜像时主 App 进程自己
         // 不画帧、永远不会创建它，tick() 也就不会跑，中继没数据可发。
         // 启动时就建一份，让它的每秒 tick 在后台保活里一直跑。

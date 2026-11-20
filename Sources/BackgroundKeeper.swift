@@ -10,6 +10,8 @@ import UIKit
 /// 做法：AVAudioSession 设为 .playback，启动一个输出静音的 AVAudioEngine。
 /// 引擎在跑，进程就不会被挂起，投屏定时器在后台继续走。
 /// 同时投屏期间禁掉自动锁屏（锁屏等于退后台）。
+/// 1.2.8：常驻保活——startAlwaysOn 在 App 启动时按开关开启，
+/// 平时不禁锁屏，只保进程；投屏时才禁锁屏。
 final class BackgroundKeeper {
     static let shared = BackgroundKeeper()
 
@@ -17,12 +19,50 @@ final class BackgroundKeeper {
     private var sourceNode: AVAudioSourceNode?
     private var running = false
     private var observers: [NSObjectProtocol] = []
+    /// 投屏中（CastEngine 控制）：同时禁自动锁屏。
+    private var casting = false
+    /// 常驻保活（App 启动时按开关开启）：只保音频会话，不禁锁屏。
+    private var alwaysOn = false
 
     /// 是否已在保活（给界面提示用）
     var isActive: Bool { running }
 
+    /// 投屏开始：禁自动锁屏 + 确保静音引擎在跑。
     func start() {
+        casting = true
         UIApplication.shared.isIdleTimerDisabled = true
+        ensureEngine()
+    }
+
+    /// 投屏结束：恢复自动锁屏；常驻保活没开才停引擎。
+    func stop() {
+        casting = false
+        UIApplication.shared.isIdleTimerDisabled = false
+        ensureEngine()
+    }
+
+    /// 常驻保活开（1.2.8）：App 启动就跑静音引擎，退后台也不停；
+    /// 不禁锁屏，只保进程。开关在运行状态卡片，默认开。
+    func startAlwaysOn() {
+        alwaysOn = true
+        ensureEngine()
+    }
+
+    /// 常驻保活关：不在投屏就停引擎。
+    func stopAlwaysOn() {
+        alwaysOn = false
+        ensureEngine()
+    }
+
+    private func ensureEngine() {
+        if casting || alwaysOn {
+            startEngine()
+        } else {
+            stopEngine()
+        }
+    }
+
+    private func startEngine() {
         guard !running else { return }
         do {
             let session = AVAudioSession.sharedInstance()
@@ -50,15 +90,14 @@ final class BackgroundKeeper {
             sourceNode = src
             running = true
             installObservers()
-            Diag.log("后台保活启动（静音音频 + 禁止锁屏）")
+            Diag.log("后台保活启动（静音音频\(casting ? " + 禁止锁屏" : "，常驻")）")
         } catch {
             // 保活失败不致命：只是退后台会断流，前台照常
             Diag.log("后台保活启动失败 \(error.localizedDescription)")
         }
     }
 
-    func stop() {
-        UIApplication.shared.isIdleTimerDisabled = false
+    private func stopEngine() {
         removeObservers()
         guard running else { return }
         running = false

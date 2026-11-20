@@ -34,8 +34,11 @@ final class ANTBMS: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeri
     static let shared = ANTBMS()
 
     /// 开关默认 OFF，MainView 的“电池 BMS (ANT)”卡片控制。
-    @Published var isEnabled = false {
+    /// 1.2.8：持久化——系统在后台把被杀的 App 拉起来恢复 BLE
+    /// 会话时，开关还得是开的，轮询才能续上。
+    @Published var isEnabled = UserDefaults.standard.bool(forKey: "nbc.antbms.enabled") {
         didSet {
+            UserDefaults.standard.set(isEnabled, forKey: "nbc.antbms.enabled")
             if isEnabled { start() } else { stop() }
         }
     }
@@ -72,7 +75,14 @@ final class ANTBMS: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeri
 
     private override init() {
         super.init()
-        central = CBCentralManager(delegate: self, queue: .main)
+        // 1.2.8：带恢复标识——系统杀掉 App 后，能在后台把它拉起来
+        // 恢复 BLE 会话（willRestoreState）。
+        central = CBCentralManager(
+            delegate: self, queue: .main,
+            options: [CBCentralManagerOptionRestoreIdentifierKey: "com.corpsezhao.ninebotcast.antbms"])
+        // 上次开关开着（被杀后在后台拉起）→ 直接续上；蓝牙还没好
+        // 就等 centralManagerDidUpdateState 回调再扫。
+        if isEnabled { start() }
     }
 
     // MARK: - 开关
@@ -155,6 +165,33 @@ final class ANTBMS: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeri
             if isEnabled { startScan() }
         } else if isEnabled {
             lastError = "蓝牙未开启"
+        }
+    }
+
+    /// 1.2.8：系统在后台把被杀的 App 拉起来时恢复 BLE 会话。
+    /// 恢复到的外设直接重连/重新发现服务，不用重新扫描。
+    func centralManager(_ central: CBCentralManager, willRestoreState dict: [String: Any]) {
+        guard isEnabled else { return }
+        // didUpdateState 可能已经先起了扫描：恢复接管，先停掉它。
+        central.stopScan()
+        scanTimer?.invalidate(); scanTimer = nil
+        isScanning = false
+        let peripherals = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral] ?? []
+        guard let p = peripherals.first else {
+            stage = "恢复后重扫"
+            startScan()
+            return
+        }
+        peripheral = p
+        p.delegate = self
+        deviceName = p.name ?? "ANT BMS"
+        if p.state == .connected {
+            isConnected = true
+            stage = "恢复连接，发现服务"
+            p.discoverServices([Self.serviceUUID])
+        } else {
+            stage = "恢复后重连"
+            central.connect(p, options: nil)
         }
     }
 

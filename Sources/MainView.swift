@@ -40,6 +40,7 @@ struct MainView: View {
     @AppStorage("nbc.hud.showBMS") private var hudShowBMS = true
     @AppStorage("nbc.hud.position") private var hudPosition = 0 // 0 右下 1 左下 2 左上 3 右上
     @AppStorage("nbc.hud.fontSize") private var hudFontSize = 1 // 0 小 1 中 2 大
+    @AppStorage("nbc.keepAlive") private var keepAlive = true
     @State private var gopIndex = 25            // 关键帧间隔（帧）
     @State private var fpsIndex = 20
     @State private var bitrateIndex = 1200      // kbps
@@ -796,6 +797,19 @@ struct MainView: View {
                     .font(.caption)
                     .foregroundColor(accent)
             }
+
+            Toggle("后台保活（退后台继续跑）", isOn: $keepAlive)
+                .font(.subheadline)
+                .onChange(of: keepAlive) { value in
+                    if value {
+                        BackgroundKeeper.shared.startAlwaysOn()
+                    } else {
+                        BackgroundKeeper.shared.stopAlwaysOn()
+                    }
+                }
+            Text("开着时 App 退后台也不停：BMS 继续轮询、接力继续发；关了只在投屏时保活")
+                .font(.caption2)
+                .foregroundColor(.secondary)
 
             DisclosureGroup(isExpanded: $showAdvanced) {
                 VStack(alignment: .leading, spacing: 10) {
