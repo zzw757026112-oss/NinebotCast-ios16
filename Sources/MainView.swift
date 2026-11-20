@@ -673,9 +673,7 @@ struct MainView: View {
                 }
                 .font(.caption)
                 .foregroundColor(.secondary)
-                Text("阶段：\(antbms.stage)　已发 \(antbms.pollCount) 次　收到 \(antbms.rxBytes) 字节\(antbms.notifyOn ? "　通知已开" : "")")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
+                BMSDiagLineView(antbms: antbms)
                 if let info = antbms.lastFrameInfo {
                     Text(info)
                         .font(.caption2)
@@ -743,9 +741,7 @@ struct MainView: View {
                 }
                 .font(.caption)
                 .foregroundColor(.secondary)
-                Text("阶段：\(elk.stage)　已发 \(elk.writeCount) 次　收到 \(elk.rxBytes) 字节\(elk.notifyOn ? "　通知已开" : "")")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
+                ELKDiagLineView(elk: elk)
                 if let err = elk.lastError {
                     Text(err)
                         .font(.caption2)
@@ -941,11 +937,11 @@ struct MainView: View {
             if ride.riding {
                 HStack(spacing: 0) {
                     metric(formatClock(ride.elapsedSec), "时长")
-                    divider
+                    dividerView()
                     metric(formatDistance(ride.distanceM), "里程")
-                    divider
+                    dividerView()
                     metric("\(Int(ride.currentSpeedKmh))", "当前 km/h")
-                    divider
+                    dividerView()
                     metric("\(Int(ride.maxSpeedKmh))", "最高 km/h")
                 }
                 Text("退后台也继续记（定位后台模式已开）。")
@@ -1073,42 +1069,9 @@ struct MainView: View {
     // MARK: - 指标
     private var metricsCard: some View {
         card("运行状态", icon: "waveform.path.ecg") {
-            HStack(spacing: 0) {
-                metric(String(engine.sentFrames), "帧已发送")
-                divider
-                metric(String(engine.sentPackets), "包已发送")
-                divider
-                metric(engine.rtcpPongCount > 0 ? "\(max(0, engine.lastRTTMs))" : "—",
-                       "往返 ms",
-                       highlight: engine.rtcpPongCount > 0)
-            }
-            if engine.isRunning {
-                HStack(spacing: 0) {
-                    metric("\(engine.measuredFps)", "实测 fps")
-                    divider
-                    metric("\(engine.avgFrameKB)", "帧均 KB")
-                    divider
-                    metric("\(engine.backlogPackets)", "待发积压",
-                           warn: engine.backlogPackets > 120)
-                }
-            }
-            HStack(spacing: 6) {
-                Image(systemName: engine.rtcpPongCount > 0 ? "checkmark.circle.fill" : "clock")
-                    .font(.system(size: 12))
-                Text(engine.rtcpPongCount > 0
-                     ? (engine.droppedFrames > 0
-                        ? "仪表在线 · 已回应 \(engine.rtcpPongCount) 次心跳 · 主动丢 \(engine.droppedFrames) 帧"
-                        : "仪表在线，已回应 \(engine.rtcpPongCount) 次心跳")
-                     : "等仪表回应心跳（2 秒以上）")
-                    .font(.caption)
-            }
-            .foregroundColor(engine.rtcpPongCount > 0 ? .green : .secondary)
-
-            if !engine.dashboardReport.isEmpty {
-                Text(engine.dashboardReport)
-                    .font(.caption)
-                    .foregroundColor(accent)
-            }
+            // 每秒都在变的那几行关进独立子视图，只订阅 CastEngine，
+            // 再怎么变也只重画这个小卡片，不重算整个 MainView（1.3.9）。
+            EngineLiveStatsView(engine: engine, accent: accent)
 
             Toggle("后台保活（退后台继续跑）", isOn: $keepAlive)
                 .font(.subheadline)
@@ -1200,26 +1163,6 @@ struct MainView: View {
                     .foregroundColor(.secondary)
             }
         }
-    }
-
-    private func metric(_ value: String, _ label: String,
-                        highlight: Bool = false, warn: Bool = false) -> some View {
-        VStack(spacing: 3) {
-            Text(value)
-                .font(.system(size: 22, weight: .semibold, design: .rounded))
-                .monospacedDigit()
-                .foregroundColor(warn ? Color.orange : (highlight ? Color.green : Color.primary))
-            Text(label)
-                .font(.caption2)
-                .foregroundColor(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private var divider: some View {
-        Rectangle()
-            .fill(Color.primary.opacity(0.07))
-            .frame(width: 1, height: 26)
     }
 
     private var fpsLabel: String { fpsIndex == 0 ? "预设帧率" : "\(fpsIndex)fps" }
@@ -1625,4 +1568,105 @@ struct BroadcastPickerButton: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: RPSystemBroadcastPickerView, context: Context) {}
+}
+
+// MARK: - 实时小视图（1.3.9，修滑动卡顿）
+// MainView 自己持有 @StateObject，body 里直接读每秒都在变的量会逼整个
+// body 每秒重算。把高频刷新的行关进各自的独立 View，它们自己订阅对象，
+// 只重画自己，MainView 不再直接读这些量。
+
+/// 指标小格：原来是 MainView 的 private 成员，rideCard 和
+/// EngineLiveStatsView 都要用，挪到文件级 private，两边共用。
+private func metric(_ value: String, _ label: String,
+                    highlight: Bool = false, warn: Bool = false) -> some View {
+    VStack(spacing: 3) {
+        Text(value)
+            .font(.system(size: 22, weight: .semibold, design: .rounded))
+            .monospacedDigit()
+            .foregroundColor(warn ? Color.orange : (highlight ? Color.green : Color.primary))
+        Text(label)
+            .font(.caption2)
+            .foregroundColor(.secondary)
+    }
+    .frame(maxWidth: .infinity)
+}
+
+/// 指标之间的竖分隔线：同上，挪到文件级 private（函数形式，
+//  避免文件级 some View 全局变量的写法风险）。
+private func dividerView() -> some View {
+    Rectangle()
+        .fill(Color.primary.opacity(0.07))
+        .frame(width: 1, height: 26)
+}
+
+/// 运行状态卡片里每秒都在变的那几行（帧/包/往返、实测 fps、心跳状态、
+/// 仪表报告）：只订阅 CastEngine。帧计数原来每帧改一次 @Published，
+/// 现在由 statTimer 每秒同步一次（CastEngine.sentFramesTotal），
+/// 这里最多每秒刷新一次。
+private struct EngineLiveStatsView: View {
+    @ObservedObject var engine: CastEngine
+    var accent: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 0) {
+                metric(String(engine.sentFrames), "帧已发送")
+                dividerView()
+                metric(String(engine.sentPackets), "包已发送")
+                dividerView()
+                metric(engine.rtcpPongCount > 0 ? "\(max(0, engine.lastRTTMs))" : "—",
+                       "往返 ms",
+                       highlight: engine.rtcpPongCount > 0)
+            }
+            if engine.isRunning {
+                HStack(spacing: 0) {
+                    metric("\(engine.measuredFps)", "实测 fps")
+                    dividerView()
+                    metric("\(engine.avgFrameKB)", "帧均 KB")
+                    dividerView()
+                    metric("\(engine.backlogPackets)", "待发积压",
+                           warn: engine.backlogPackets > 120)
+                }
+            }
+            HStack(spacing: 6) {
+                Image(systemName: engine.rtcpPongCount > 0 ? "checkmark.circle.fill" : "clock")
+                    .font(.system(size: 12))
+                Text(engine.rtcpPongCount > 0
+                     ? (engine.droppedFrames > 0
+                        ? "仪表在线 · 已回应 \(engine.rtcpPongCount) 次心跳 · 主动丢 \(engine.droppedFrames) 帧"
+                        : "仪表在线，已回应 \(engine.rtcpPongCount) 次心跳")
+                     : "等仪表回应心跳（2 秒以上）")
+                    .font(.caption)
+            }
+            .foregroundColor(engine.rtcpPongCount > 0 ? .green : .secondary)
+
+            if !engine.dashboardReport.isEmpty {
+                Text(engine.dashboardReport)
+                    .font(.caption)
+                    .foregroundColor(accent)
+            }
+        }
+    }
+}
+
+/// BMS 卡片里每秒变的诊断行（阶段/已发/收到）：只订阅 ANTBMS。
+private struct BMSDiagLineView: View {
+    @ObservedObject var antbms: ANTBMS
+
+    var body: some View {
+        Text("阶段：\(antbms.stage)　已发 \(antbms.pollCount) 次　收到 \(antbms.rxBytes) 字节\(antbms.notifyOn ? "　通知已开" : "")")
+            .font(.caption2)
+            .foregroundColor(.secondary)
+    }
+}
+
+/// 灯带卡片里每秒变的诊断行（阶段/已发/收到）：只订阅 ELKStrip。
+private struct ELKDiagLineView: View {
+    @ObservedObject var elk: ELKStrip
+
+    var body: some View {
+        Text("阶段：\(elk.stage)　已发 \(elk.writeCount) 次　收到 \(elk.rxBytes) 字节\(elk.notifyOn ? "　通知已开" : "")")
+            .font(.caption2)
+            .foregroundColor(.secondary)
+    }
 }
