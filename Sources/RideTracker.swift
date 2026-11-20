@@ -283,7 +283,7 @@ final class RideTracker: NSObject, ObservableObject, CLLocationManagerDelegate {
     /// 速度中继 + 动态岛：RideTracker 是唯一的数据源。
     private func postLiveState() {
         SpeedRelay.update(speedKmh: Int(currentSpeedKmh.rounded()), overspeed: overspeed)
-        if #available(iOS 16.1, *) {
+        if #available(iOS 16.2, *) {
             RideActivity.sync(riding: riding, speedKmh: currentSpeedKmh, distanceKm: distanceM / 1000,
                               durationSec: elapsedSec, overspeed: overspeed,
                               bmsVoltage: bmsVoltageNow(), bmsSoc: bmsSocNow())

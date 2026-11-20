@@ -10,11 +10,12 @@ import os.log
 /// 这样扩展编译时不缺符号（扩展里没有那些 Sources 文件）。
 /// Diag 也不能用（Sources 文件）：日志用 os_log。
 ///
-/// 部署目标：主 App 还是 iOS 16.0，所以属性和管理都标
-/// @available(iOS 16.1, *)，调用方（RideTracker/CastEngine）用
-/// if #available(iOS 16.1, *) 包住；iOS 16.0 的机器上这些调用
-/// 直接跳过，什么都不做。扩展自己的部署目标是 16.1（project.yml）。
-@available(iOS 16.1, *)
+/// 部署目标：主 App 还是 iOS 16.0。ActivityContent 形式的
+/// request/update/end（带 staleDate / dismissalPolicy）要 iOS 16.2，
+/// 所以属性和管理都标 @available(iOS 16.2, *)，调用方用
+/// if #available(iOS 16.2, *) 包住；iOS 16.1 及以下机器上这些调用
+/// 直接跳过，什么都不做。扩展自己的部署目标是 16.2（project.yml）。
+@available(iOS 16.2, *)
 struct RideActivityAttributes: ActivityAttributes {
     struct ContentState: Codable, Hashable {
         var speedKmh: Double
@@ -27,7 +28,7 @@ struct RideActivityAttributes: ActivityAttributes {
     }
 }
 
-@available(iOS 16.1, *)
+@available(iOS 16.2, *)
 enum RideActivity {
     private static let log = Logger(subsystem: "com.corpsezhao.ninebotcast", category: "liveactivity")
     private static var casting = false

@@ -4,7 +4,7 @@ import WidgetKit
 
 /// 动态岛扩展：锁屏 + 灵动岛。1.2.9 新增。
 ///
-/// 只编进 LiveActivityWidget 扩展（部署目标 iOS 16.1），
+/// 只编进 LiveActivityWidget 扩展（部署目标 iOS 16.2），
 /// 属性定义在 Shared/RideActivity.swift。
 /// 锁屏：大速度 + 距离/时长 + BMS + 超速/投屏状态。
 /// 灵动岛：紧凑左 = 速度，紧凑右 = 距离，最小 = 速度，

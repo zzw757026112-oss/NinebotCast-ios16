@@ -96,14 +96,14 @@ targets:
           NSExtensionPrincipalClass: ScreenCast.SampleHandler
 
   # 动态岛扩展（Live Activity，锁屏 + 灵动岛）：1.2.9 新增。
-  # 部署目标 iOS 16.1（ActivityKit 的最低版本）；主 App 还是 16.0，
-  # 16.0 的机器上扩展不加载、App 里所有 ActivityKit 调用都被
-  # if #available(iOS 16.1, *) 挡住，不会闪退。
+  # 部署目标 iOS 16.2（ActivityContent 形式的 request/update/end 要 16.2）；
+  # 主 App 还是 16.0，16.1 及以下机器上扩展不加载、App 里所有 ActivityKit 调用都被
+  # if #available(iOS 16.2, *) 挡住，不会闪退。
   LiveActivityWidget:
     type: app-extension
     platform: iOS
     deploymentTarget:
-      iOS: "16.1"
+      iOS: "16.2"
     sources:
       - path: LiveActivity
       - path: Shared/RideActivity.swift
