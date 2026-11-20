@@ -6,13 +6,14 @@ import os.log
 /// 通道是 Darwin 通知（CFNotificationCenterGetDarwinNotifyCenter），
 /// 和方向接力同一个办法：不需要 App Groups、不需要任何 entitlement，
 /// 自签名免费证书也能用。Darwin 通知不带 userInfo，设置值编码在
-/// 通知名字里，扩展订阅全部 19 个名字：
+/// 通知名字里，扩展订阅全部 21 个名字：
 ///   com.corpsezhao.ninebotcast.hud.show.date.1 / .0
 ///   com.corpsezhao.ninebotcast.hud.show.weather.1 / .0
 ///   com.corpsezhao.ninebotcast.hud.show.signal.1 / .0
 ///   com.corpsezhao.ninebotcast.hud.show.battery.1 / .0
 ///   com.corpsezhao.ninebotcast.hud.show.volume.1 / .0
 ///   com.corpsezhao.ninebotcast.hud.show.bms.1 / .0
+///   com.corpsezhao.ninebotcast.hud.show.slot.1 / .0（1.3.12 老虎机）
 ///   com.corpsezhao.ninebotcast.hud.pos.br / .bl / .tl / .tr
 ///   com.corpsezhao.ninebotcast.hud.size.s / .m / .l
 ///
@@ -28,6 +29,7 @@ struct HUDSettings: Equatable {
     var showBattery = true
     var showVolume = true
     var showBMS = true
+    var showSlot = false // 1.3.12 老虎机：默认关；和电池 BMS 面板互斥（开一个关另一个）
     var position: Position = .bottomRight
     var fontSize: FontSize = .medium
 
@@ -120,6 +122,7 @@ enum HUDSettingsRelay {
             case "battery": _current.showBattery = value
             case "volume": _current.showVolume = value
             case "bms": _current.showBMS = value
+            case "slot": _current.showSlot = value
             default: return
             }
         } else if rest.hasPrefix("pos.") {
@@ -135,7 +138,7 @@ enum HUDSettingsRelay {
 
     private static var observing = false
 
-    /// 扩展启动时调一次（SampleHandler.init）：订阅全部 19 个设置通知。
+    /// 扩展启动时调一次（SampleHandler.init）：订阅全部 21 个设置通知。
     static func startObserving() {
         lock.lock()
         guard !observing else { lock.unlock(); return }
@@ -144,7 +147,7 @@ enum HUDSettingsRelay {
 
         let center = CFNotificationCenterGetDarwinNotifyCenter()
         var names: [CFString] = []
-        for item in ["date", "weather", "signal", "battery", "volume", "bms"] {
+        for item in ["date", "weather", "signal", "battery", "volume", "bms", "slot"] {
             names.append(showName(item: item, on: true))
             names.append(showName(item: item, on: false))
         }
@@ -184,7 +187,7 @@ enum HUDSettingsRelay {
         _posted = settings
         lock.unlock()
         postAll()
-        log.info("HUD 设置已发：日期 \(settings.showDate ? 1 : 0) 天气 \(settings.showWeather ? 1 : 0) 信号 \(settings.showSignal ? 1 : 0) 电量 \(settings.showBattery ? 1 : 0) 音量 \(settings.showVolume ? 1 : 0) 电池BMS \(settings.showBMS ? 1 : 0) 位置 \(settings.position.rawValue) 字号 \(settings.fontSize.rawValue)")
+        log.info("HUD 设置已发：日期 \(settings.showDate ? 1 : 0) 天气 \(settings.showWeather ? 1 : 0) 信号 \(settings.showSignal ? 1 : 0) 电量 \(settings.showBattery ? 1 : 0) 音量 \(settings.showVolume ? 1 : 0) 电池BMS \(settings.showBMS ? 1 : 0) 老虎机 \(settings.showSlot ? 1 : 0) 位置 \(settings.position.rawValue) 字号 \(settings.fontSize.rawValue)")
     }
 
     private static func postAll() {
@@ -199,6 +202,7 @@ enum HUDSettingsRelay {
             showName(item: "battery", on: settings.showBattery),
             showName(item: "volume", on: settings.showVolume),
             showName(item: "bms", on: settings.showBMS),
+            showName(item: "slot", on: settings.showSlot),
             posName(settings.position),
             sizeName(settings.fontSize)
         ]
