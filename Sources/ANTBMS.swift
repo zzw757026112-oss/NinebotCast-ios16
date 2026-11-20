@@ -461,7 +461,11 @@ final class ANTBMS: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeri
         let temps = (0..<6).map { Int(u16(f, 34 + 2 * n + 2 * $0)) }
         let voltage = Float(u16(f, 46 + 2 * n)) / 100
         let current = Float(Int16(bitPattern: u16(f, 48 + 2 * n))) / 10
-        let soc = Float(u16(f, 52 + 2 * n)) / 10
+        // 朋友版 103：SOC 修正。之前读的是 52+2n，那是 battery_health（恒为 100，健康度），
+        // 除以 10 后永远显示 10.0%。真正的 SOC（battery_level）是 50+2n 的 u16，原始值就是百分比，
+        // 不用除 10（对照 aiobmsble ant_bms.py 的 _FIELDS：battery_level 在相对偏移 42，battery_health 在 44）。
+        // 02:09 那次对上纯属巧合——当时真实 SOC 正好也是 10%。
+        let soc = Float(u16(f, 50 + 2 * n))
         guard let cMin = cells.min(), let cMax = cells.max() else { return nil }
         return ANTBMSData(
             voltage: voltage,
