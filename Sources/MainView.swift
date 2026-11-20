@@ -933,7 +933,7 @@ struct MainView: View {
                     divider
                     metric("\(Int(ride.maxSpeedKmh))", "最高 km/h")
                 }
-                Text("退后台也继续记（定位后台模式已开）；锁屏和灵动岛上能看到实时速度和里程。")
+                Text("退后台也继续记（定位后台模式已开）。")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             } else if ride.locationDenied {

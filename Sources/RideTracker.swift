@@ -144,7 +144,7 @@ final class RideTracker: NSObject, ObservableObject, CLLocationManagerDelegate {
             saveRides()
         }
         try? FileManager.default.removeItem(at: Self.progressURL)
-        // 动态岛：骑行结束；投屏还在跑就不结束（manager 内部判）。
+        // 最后同步一次速度状态到 HUD 中继。
         postLiveState()
         startTime = nil
         Diag.log("骑行记录：结束，\(String(format: "%.2f", distanceM / 1000)) km")
@@ -257,7 +257,7 @@ final class RideTracker: NSObject, ObservableObject, CLLocationManagerDelegate {
         if !alertOn { overspeed = false }
     }
 
-    // MARK: - 每秒心跳（时长 + 停下归零 + 中继/动态岛）
+    // MARK: - 每秒心跳（时长 + 停下归零 + 中继）
 
     private func startTick() {
         tickTimer?.cancel()
@@ -280,18 +280,10 @@ final class RideTracker: NSObject, ObservableObject, CLLocationManagerDelegate {
         tickTimer = t
     }
 
-    /// 速度中继 + 动态岛：RideTracker 是唯一的数据源。
+    /// 速度中继：RideTracker 是唯一的数据源。
     private func postLiveState() {
         SpeedRelay.update(speedKmh: Int(currentSpeedKmh.rounded()), overspeed: overspeed)
-        if #available(iOS 16.2, *) {
-            RideActivity.sync(riding: riding, speedKmh: currentSpeedKmh, distanceKm: distanceM / 1000,
-                              durationSec: elapsedSec, overspeed: overspeed,
-                              bmsVoltage: bmsVoltageNow(), bmsSoc: bmsSocNow())
-        }
     }
-
-    private func bmsVoltageNow() -> Float? { ANTBMS.shared.snapshot?.voltage }
-    private func bmsSocNow() -> Float? { ANTBMS.shared.snapshot?.soc }
 
     // MARK: - 持久化
 

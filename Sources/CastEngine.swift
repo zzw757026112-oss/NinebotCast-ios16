@@ -335,7 +335,6 @@ final class CastEngine: ObservableObject {
             : "发送中 → \(target):5012\(localIP.map { "（本机 \($0)）" } ?? "")：\(effective.title)"
         isRunning = true
         BackgroundKeeper.shared.start()   // 退后台不断流（静音音频保活 + 禁止锁屏）
-        if #available(iOS 16.2, *) { RideActivity.setCasting(true) } // 动态岛：投屏开始也值得一个动态岛（1.2.9）
         Diag.log("start 完成")
     }
 
@@ -370,7 +369,6 @@ final class CastEngine: ObservableObject {
         videoChannel?.stop(); videoChannel = nil
         controlChannel?.stop(); controlChannel = nil
         BackgroundKeeper.shared.stop()
-        if #available(iOS 16.2, *) { RideActivity.setCasting(false) } // 动态岛：投屏停了，骑行没在跑就结束（1.2.9）
 
         if statusText.hasPrefix("发送中") || statusText.hasPrefix("仅 RTCP") {
             statusText = "已停止"
