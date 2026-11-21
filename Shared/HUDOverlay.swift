@@ -709,21 +709,15 @@ enum HUDRenderer {
         }
         } // if !measuredRows.isEmpty
 
-        // ---- ANT BMS 单独面板（朋友版 105）：右上角车辆自带表盘下面，宽度跟它对齐 ----
-        // 上下间隙跟底下胶囊一致：面板在表盘底沿和胶囊顶之间垂直居中，两边间隙相等。
+        // ---- ANT BMS 单独面板（朋友版 106）：右上角车辆自带表盘下面，宽度跟它对齐 ----
+        // 顶边固定 222（表盘底沿 214 下面 8px），不管胶囊显不显示都贴在表盘正下方。
+        // 105 的居中算法（表盘底沿和胶囊顶之间垂直居中）会把面板推到屏幕中间，已删掉。
         // 位置是按仪表照片量的（848×480 参考系）：表盘左沿 375、宽 281、底沿 214。
         if !bmsItems.isEmpty {
             let bmsLeft = bmsPanelX
             let bmsW = bmsPanelW
             let bmsH = padY * 2 + rowHeight * 3 + rowGap * 2
-            let bmsTopFromTop: CGFloat
-            if !measuredRows.isEmpty {
-                let pBottom = CGFloat(214) * sy
-                let capsuleTop = h - (pillY + pillH)
-                bmsTopFromTop = pBottom + (capsuleTop - pBottom - bmsH) / 2
-            } else {
-                bmsTopFromTop = CGFloat(222) * sy
-            }
+            let bmsTopFromTop: CGFloat = CGFloat(222) * sy
             let bmsY = h - bmsTopFromTop - bmsH
             let bmsPanel = CGRect(x: bmsLeft, y: bmsY, width: bmsW, height: bmsH)
             context.setShadow(offset: .zero, blur: 0, color: nil)
