@@ -634,11 +634,13 @@ enum HUDRenderer {
         let pillH = padY * 2 + rowHeight * CGFloat(rowCount) + rowGap * CGFloat(max(0, rowCount - 1))
 
         // 胶囊锚点按设置来（y 朝上坐标系）。有 BMS 面板且在右侧时，左沿跟 BMS 面板对齐。
+        // 朋友版 106：有 BMS 时左沿强制跟 BMS 面板对齐（375），不随内容变宽而右移——
+        // 105 的条件 pillW <= 281.5 在内容稍宽时就失效，胶囊会被推到右沿，跟 BMS 面板错开。
         let pillX: CGFloat
         let pillY: CGFloat
         switch settings.position {
         case .bottomRight:
-            pillX = (!bmsItems.isEmpty && pillW <= bmsPanelW + 0.5) ? bmsPanelX : (refWidth - marginRightRef) * sx - pillW
+            pillX = !bmsItems.isEmpty ? bmsPanelX : (refWidth - marginRightRef) * sx - pillW
             pillY = marginBottomRef * sy
         case .bottomLeft:
             pillX = marginLeftRef * sx
@@ -647,7 +649,7 @@ enum HUDRenderer {
             pillX = marginLeftRef * sx
             pillY = h - marginTopRef * sy - pillH
         case .topRight:
-            pillX = (!bmsItems.isEmpty && pillW <= bmsPanelW + 0.5) ? bmsPanelX : (refWidth - marginRightRef) * sx - pillW
+            pillX = !bmsItems.isEmpty ? bmsPanelX : (refWidth - marginRightRef) * sx - pillW
             pillY = h - marginTopRef * sy - pillH
         }
 
