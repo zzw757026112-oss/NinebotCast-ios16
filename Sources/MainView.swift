@@ -582,7 +582,7 @@ struct MainView: View {
             Text("铺满：铺满全屏，左右各裁掉一点；完整：整幅画面都可见，上下留黑边；拉伸：整幅画面铺满仪表，横向略压扁。手机画面比仪表宽，铺满和不裁剪没法同时做到。下一帧就生效，不用重开镜像。")
                 .font(.caption2)
                 .foregroundColor(.secondary)
-            Text("仪表右下角会叠加一个小胶囊：日期时间和天气、信号、电量，来电时左下角显示红色“来电”。位置和显示项可以在下面 HUD 设置里改。")
+            Text("仪表右下角会叠加一个小胶囊：日期和天气、信号、电量，来电时左下角显示红色“来电”。位置和显示项可以在下面 HUD 设置里改。")
                 .font(.caption2)
                 .foregroundColor(.secondary)
         }
@@ -616,7 +616,7 @@ struct MainView: View {
 
     private var hudCard: some View {
         card("HUD 显示", icon: "gauge") {
-            Toggle("日期时间", isOn: $hudShowDate)
+            Toggle("日期", isOn: $hudShowDate)
                 .font(.subheadline)
             Toggle("天气温度", isOn: $hudShowWeather)
                 .font(.subheadline)
