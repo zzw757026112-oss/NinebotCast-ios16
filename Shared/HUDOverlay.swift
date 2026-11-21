@@ -883,12 +883,12 @@ enum HUDRenderer {
         // 文字（1–9 上下滚动，停下变 888），摇杆是运行时画的（向前下方扳动是
         // 透视缩短，不是往右下甩）。局部坐标是参考点、y 朝下，跟预览同一套数。
         if settings.showSlot, let tmpl = SlotMachineImage.image() {
-            let slotW: CGFloat = 281
+            let slotW: CGFloat = 245  // 1.3.17：面板收窄（281→245），黑底不再比表盘/胶囊宽出一截；机身图 223 宽，两边各留 11px
             let slotH: CGFloat = 108
-            // 位置（1.3.14）：紧贴 P 表盘底沿（顶边 222，离底沿 214 只差 8px），跟 BMS 面板同一算法。
-            // 之前是在表盘底沿和胶囊顶之间垂直居中，结果跑到屏幕中部、压住地图/画面（用户 2026-11-21 照片反馈）。
-            let slotTopFromTop: CGFloat = CGFloat(222) * sy
-            let slotX = (refWidth - marginRightRef - slotW) * sx  // 1.3.16：右对齐，贴到 P 表盘下面（之前 375 偏左，不在表盘下面）
+            // 位置（1.3.17）：顶边 265（222→265，往下 43px）。表盘底沿约 234（照片实测，旧 214 是朋友车的数）、胶囊顶约 403，
+            // 两边间隙各约 30px（之前顶边 222 直接压住表盘底沿，照片上老虎机顶边比表盘底沿高约 12px）。
+            let slotTopFromTop: CGFloat = CGFloat(265) * sy
+            let slotX = (refWidth - marginRightRef - slotW) * sx  // 1.3.17：右对齐，X=591（848-12-245）
             // 局部（参考点、y 朝下）→ CG（y 朝上）的换算。
             func cgRect(_ r: CGRect) -> CGRect {
                 CGRect(x: slotX + r.minX * sx,
@@ -917,10 +917,12 @@ enum HUDRenderer {
             let imgX = (slotW - imgW) / 2
             context.draw(tmpl, in: cgRect(CGRect(x: imgX, y: 2, width: imgW, height: imgH)))
             // 三格数字：格子窗口（面板局部、y 朝下、参考点），跟预览同一套数。
+            // 1.3.17：面板收窄 36px，机身图跟着左移 18px（imgX 29→11），格子同步左移 18px，
+            // 仍对准模板里的黑格子（图内坐标不变）。
             let reels: [CGRect] = [
-                CGRect(x: 65.67, y: 38.33, width: 42.33, height: 61.67),
-                CGRect(x: 116.67, y: 38.33, width: 42.33, height: 61.67),
-                CGRect(x: 165.67, y: 38.33, width: 42.67, height: 61.67),
+                CGRect(x: 47.67, y: 38.33, width: 42.33, height: 61.67),
+                CGRect(x: 98.67, y: 38.33, width: 42.33, height: 61.67),
+                CGRect(x: 147.67, y: 38.33, width: 42.67, height: 61.67),
             ]
             let digitFont = CTFontCreateWithName("Helvetica-Bold" as CFString, 32 * sy, nil)
             let digitAscent = CTFontGetAscent(digitFont)
@@ -949,9 +951,10 @@ enum HUDRenderer {
                 }
                 context.restoreGState()
             }
-            // 摇杆：从支点（236, 56.1）出发；扳动是向前下方（透视缩短），
+            // 摇杆：从支点（218, 56.1）出发；扳动是向前下方（透视缩短），
             // 球直直往下掉、杆变短、球微微变大，不是往右下甩。
-            let pivot = CGPoint(x: 236, y: 56.1)
+            // 1.3.17：支点 x 跟机身图同步左移 18px（236→218）。
+            let pivot = CGPoint(x: 218, y: 56.1)
             let rodLen: CGFloat = 47
             let th = slotLever * CGFloat.pi / 180
             let proj = rodLen * cos(th)
