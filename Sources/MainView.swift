@@ -131,6 +131,8 @@ struct MainView: View {
             if host.isEmpty { host = LanScanner.gatewayGuess() ?? "" }
             applyQuality(qualityIndex)
             postHUDSettings()
+            // 1.3.13：老虎机开着就给它供速度（不开骑行记录也能转）。
+            RideTracker.shared.setSlotTracking(hudShowSlot)
             diagText = Diag.tail(16)
             Diag.log("MainView 出现，版本 \(AppVersion.display)，IP=\(host.isEmpty ? "未填" : host)")
         }
@@ -653,7 +655,7 @@ struct MainView: View {
         .onChange(of: hudShowBattery) { _ in postHUDSettings() }
         .onChange(of: hudShowVolume) { _ in postHUDSettings() }
         .onChange(of: hudShowBMS) { v in if v { hudShowSlot = false }; postHUDSettings() }
-        .onChange(of: hudShowSlot) { v in if v { hudShowBMS = false }; postHUDSettings() }
+        .onChange(of: hudShowSlot) { v in if v { hudShowBMS = false }; postHUDSettings(); RideTracker.shared.setSlotTracking(v) }
         .onChange(of: hudPosition) { _ in postHUDSettings() }
         .onChange(of: hudFontSize) { _ in postHUDSettings() }
     }
