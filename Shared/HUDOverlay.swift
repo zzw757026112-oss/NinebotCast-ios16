@@ -130,7 +130,7 @@ final class HUDData: NSObject, CLLocationManagerDelegate, CXCallObserverDelegate
     private override init() {
         let fmt = DateFormatter()
         fmt.locale = Locale(identifier: "zh_CN")
-        fmt.dateFormat = "M月d日 E HH:mm"
+        fmt.dateFormat = "M月d日 E"  // 1.3.18：时间挪到翻页时钟了，胶囊里不再带时间
         dateFormatter = fmt
         super.init()
 
@@ -409,93 +409,50 @@ enum HUDRenderer {
     private static var cachedLayer: CGImage?
     private static var lastRender = Date.distantPast
 
-    // MARK: - 老虎机状态机（1.3.12）
+    // MARK: - 翻页时钟状态机（1.3.18，替换老虎机 1.3.12）
     //
-    // 骑行开始（SpeedRelay 车速 > 2）：摇杆朝前方下面扳（0→80°，透视缩短），
-    // 三格数字 1–9 上下滚动，越快转得越快。
-    // 车停下（车速 < 1）：摇杆弹回 0°，三格依次停下（0 / 0.4 / 0.8 秒），
-    // 每格滑到最近的 8 停住，最后 888。
-    // 数字带是 1–9 循环，格距 40 参考点；偏移 ≡ 280（= 7×40）时正中是 8。
-    private static let slotPitch: CGFloat = 40
-    private static var slotOffsets: [CGFloat] = [0, 0, 0]      // 每格滚动偏移（参考点）
-    private static let slotRateMul: [CGFloat] = [1.0, 1.5, 0.7] // 三格转速倍率（1.3.15：各格不同速，骑行时显示不同数字）
-    private static var slotLever: CGFloat = 0                   // 摇杆角度 0–80
-    private static var slotSpinning = false
-    private static var slotStopAt: [Date?] = [nil, nil, nil]    // 每格停下的时刻
-    private static var slotSettle: [CGFloat?] = [nil, nil, nil] // 每格对准 8 的目标偏移
-    private static var slotLastTick = Date.distantPast
+    // 显示当前时间 HH:MM:SS，六格翻页卡片；数字变化时翻页动画 0.35 秒
+    // （上半折下去、下半换新数字）。秒位每秒变一次，所以每秒都翻一格。
+    private static var flipDigits: [Int] = [-1, -1, -1, -1, -1, -1] // 当前显示的数字（-1 = 还没画过）
+    private static var flipOld: [Int] = [0, 0, 0, 0, 0, 0]           // 翻页前旧数字
+    private static var flipStart: [Date?] = [nil, nil, nil, nil, nil, nil] // 每格翻页开始时刻
+    private static let flipDuration: TimeInterval = 0.35
 
-    /// 每帧调一次，推进老虎机状态。返回：老虎机是否在动
-    /// （在动时 layer() 用 150ms 档重画；静止时走正常 1 秒节流）。
-    private static func slotTick(now: Date, speedKmh: Int, enabled: Bool) -> Bool {
+    /// 每帧调一次，推进翻页时钟状态。返回：是否有格子正在翻页
+    /// （翻页时 layer() 用 150ms 档重画；平时走正常 1 秒节流）。
+    private static func flipTick(now: Date, enabled: Bool) -> Bool {
         guard enabled else {
-            // 没开老虎机：状态归零，下次开从 888 / 摇杆 0 开始。
-            if slotLever != 0 || slotOffsets != [0, 0, 0] || slotSpinning {
-                slotOffsets = [0, 0, 0]
-                slotLever = 0
-                slotSpinning = false
-                slotStopAt = [nil, nil, nil]
-                slotSettle = [nil, nil, nil]
-                slotLastTick = .distantPast
+            // 没开翻页时钟：状态归零，下次开从当前时间直接显示（不翻）。
+            if flipDigits != [-1, -1, -1, -1, -1, -1] || flipStart.contains(where: { $0 != nil }) {
+                flipDigits = [-1, -1, -1, -1, -1, -1]
+                flipOld = [0, 0, 0, 0, 0, 0]
+                flipStart = [nil, nil, nil, nil, nil, nil]
             }
             return false
         }
-        let dt = slotLastTick == .distantPast ? 0 : now.timeIntervalSince(slotLastTick)
-        slotLastTick = now
-        let dtC = CGFloat(min(max(dt, 0), 0.5))
-        let spinning = speedKmh > 2
-        // 摇杆：转时目标 80°，停时目标 0°；每秒 240° 逼近。
-        let leverTarget: CGFloat = spinning ? 80 : 0
-        let leverStep = CGFloat(240) * dtC
-        if slotLever < leverTarget { slotLever = min(leverTarget, slotLever + leverStep) }
-        else if slotLever > leverTarget { slotLever = max(leverTarget, slotLever - leverStep) }
-        if spinning {
-            if !slotSpinning {
-                slotSpinning = true
-                slotStopAt = [nil, nil, nil]
-                slotSettle = [nil, nil, nil]
-            }
-            // 滚动速度随车速：每秒 2 + 车速/10 格；三格转速不同（1.0 / 1.5 / 0.7），
-            // 骑行时三格显示不同数字（真老虎机三格是独立转的），停下仍各滑到 888。
-            // 偏移对 360 取余防越滚越大。
-            let baseRate = slotPitch * (2 + CGFloat(speedKmh) / 10)
-            for i in 0..<3 {
-                slotOffsets[i] += baseRate * slotRateMul[i] * dtC
-                slotOffsets[i] = slotOffsets[i].truncatingRemainder(dividingBy: 9 * slotPitch)
-            }
-        } else {
-            if slotSpinning {
-                // 刚停下：排停表，三格依次停（0 / 0.4 / 0.8 秒）。
-                slotSpinning = false
-                for i in 0..<3 { slotStopAt[i] = now.addingTimeInterval(Double(i) * 0.4) }
-            }
-            for i in 0..<3 {
-                guard let t = slotStopAt[i], now >= t else { continue }
-                if slotSettle[i] == nil {
-                    // 下一个 8：偏移 ≡ 280（mod 360）。
-                    let period = 9 * slotPitch
-                    let rem = slotOffsets[i].truncatingRemainder(dividingBy: period)
-                    var target = slotOffsets[i] - rem + 7 * slotPitch
-                    if target < slotOffsets[i] { target += period }
-                    slotSettle[i] = target
+        let cal = Calendar.current
+        let comps = cal.dateComponents([.hour, .minute, .second], from: now)
+        let h = comps.hour ?? 0, m = comps.minute ?? 0, s = comps.second ?? 0
+        let digits = [h / 10, h % 10, m / 10, m % 10, s / 10, s % 10]
+        var animating = false
+        for i in 0..<6 {
+            if flipDigits[i] != digits[i] {
+                // 数字变了：开始翻页（第一次直接显示，不翻）。
+                if flipDigits[i] >= 0 {
+                    flipOld[i] = flipDigits[i]
+                    flipStart[i] = now
                 }
-                if let target = slotSettle[i] {
-                    // 滑向 8：每帧走剩下距离的 1/4，快到时贴上去。
-                    slotOffsets[i] += (target - slotOffsets[i]) * min(1, dtC / 0.25)
-                    if abs(target - slotOffsets[i]) < 0.5 {
-                        slotOffsets[i] = target.truncatingRemainder(dividingBy: 9 * slotPitch)
-                        slotSettle[i] = nil
-                        slotStopAt[i] = nil
-                    }
+                flipDigits[i] = digits[i]
+            }
+            if let st = flipStart[i] {
+                if now.timeIntervalSince(st) < flipDuration {
+                    animating = true
+                } else {
+                    flipStart[i] = nil
                 }
             }
         }
-        // 在动 = 转着，或摇杆没归位，或还有格子没停稳。
-        if spinning || slotLever != 0 { return true }
-        for i in 0..<3 {
-            if slotStopAt[i] != nil || slotSettle[i] != nil { return true }
-        }
-        return false
+        return animating
     }
 
     /// 画进已有 buffer（原地）。调用方保证该 buffer 每帧都会被
@@ -574,20 +531,23 @@ enum HUDRenderer {
     private static func layer(forWidth width: Int, height: Int) -> CGImage? {
         let snap = HUDData.shared.snapshot()
         let settings = HUDSettingsRelay.current
-        // 老虎机（1.3.12）：每帧推进一次状态（转/停/摇杆），
-        // 动的时候缓存键里加一个 150ms 档位，逼重画跟上动画。
-        let slotMoving = slotTick(now: Date(), speedKmh: SpeedRelay.current?.speedKmh ?? 0, enabled: settings.showSlot)
-        let slotBucket = slotMoving ? Int(Date().timeIntervalSinceReferenceDate / 0.15) : -1
+        // 翻页时钟（1.3.18）：每帧推进一次翻页状态；
+        // 翻页时缓存键里加一个 150ms 档位，逼重画跟上动画；
+        // 秒数进缓存键，时间每秒变、层每秒重画。
+        let now = Date()
+        let flipMoving = flipTick(now: now, enabled: settings.showSlot)
+        let secondBucket = Int(now.timeIntervalSinceReferenceDate)
+        let flipBucket = flipMoving ? Int(now.timeIntervalSinceReferenceDate / 0.15) : -1
         let settingsKey = "\(settings.showDate ? 1 : 0)\(settings.showWeather ? 1 : 0)\(settings.showSignal ? 1 : 0)\(settings.showBattery ? 1 : 0)\(settings.showVolume ? 1 : 0)\(settings.showBMS ? 1 : 0)\(settings.showSlot ? 1 : 0)|\(settings.position.rawValue)|\(settings.fontSize.rawValue)"
         let bmsKey = snap.bms.map { "\($0.voltage)|\($0.current)|\($0.power)|\($0.soc)|\($0.maxTemp)|\($0.delta)" } ?? "-"
         let speedKey = snap.speed.map { "\($0.kmh)" } ?? "-"
-        let key = "\(width)x\(height)|\(snap.date)|\(snap.weatherCode ?? -1)|\(snap.weatherTemp ?? -999)|\(snap.batteryLevel)|\(snap.charging ? 1 : 0)|\(snap.network.cacheKey)|\(snap.calling ? 1 : 0)|\(snap.volume)|\(bmsKey)|\(speedKey)|\(settingsKey)|slot\(slotBucket)"
+        let key = "\(width)x\(height)|\(snap.date)|\(snap.weatherCode ?? -1)|\(snap.weatherTemp ?? -999)|\(snap.batteryLevel)|\(snap.charging ? 1 : 0)|\(snap.network.cacheKey)|\(snap.calling ? 1 : 0)|\(snap.volume)|\(bmsKey)|\(speedKey)|\(settingsKey)|flip\(secondBucket):\(flipBucket)"
         lock.lock()
         defer { lock.unlock() }
         if key == cachedKey, let layer = cachedLayer { return layer }
         // 内容变了但离上次重画不到节流间隔：先用旧层，不阻塞帧路径。
-        // 平时 1 秒；老虎机在动时 0.15 秒（数字滚动才跟得上）。
-        let minInterval = slotMoving ? 0.15 : 1.0
+        // 平时 1 秒；翻页在动时 0.15 秒（翻页动画才跟得上）。
+        let minInterval = flipMoving ? 0.15 : 1.0
         if let layer = cachedLayer, Date().timeIntervalSince(lastRender) < minInterval {
             return layer
         }
@@ -630,6 +590,32 @@ enum HUDRenderer {
         return CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
     }
 
+    /// Open-Meteo weather_code → 天气情况文字（1.3.18：胶囊第一排直接写“晴”这种，不再只画图标）。
+    private static func weatherConditionText(code: Int) -> String {
+        switch code {
+        case 0: return "晴"
+        case 1, 2: return "多云"
+        case 3: return "阴"
+        case 45, 48: return "雾"
+        case 51, 53, 55: return "毛毛雨"
+        case 56, 57: return "冻毛毛雨"
+        case 61: return "小雨"
+        case 63: return "中雨"
+        case 65: return "大雨"
+        case 66, 67: return "冻雨"
+        case 71: return "小雪"
+        case 73: return "中雪"
+        case 75: return "大雪"
+        case 77: return "雪粒"
+        case 80, 81: return "阵雨"
+        case 82: return "暴雨"
+        case 85, 86: return "阵雪"
+        case 95: return "雷阵雨"
+        case 96, 99: return "雷阵雨伴冰雹"
+        default: return "—"
+        }
+    }
+
     /// 把胶囊（最多三行：日期 / 天气信号音量电量 / 超速）+ 右上角 BMS 面板 + 来电红条画进一张全尺寸透明层。
     /// CGContext 在这里是 y 朝上的坐标系（与 TestImageSource 相同），
     /// 所以「离顶 xx」要换算成 baseline = 高 - 顶距 - 上伸。
@@ -648,36 +634,38 @@ enum HUDRenderer {
         let h = CGFloat(height)
 
         // 字号跟设置走（小 16 / 中 20 / 大 24），图标跟着字一样大。
-        let fontSize = max(12, settings.fontSize.refPt * sy)
-        let font = CTFontCreateWithName("Helvetica-Bold" as CFString, fontSize, nil)
+        // 1.3.18：胶囊要压到 204 宽，内容太宽时缩字号，所以下面几个都是 var。
+        var fontSize = max(12, settings.fontSize.refPt * sy)
+        var font = CTFontCreateWithName("Helvetica-Bold" as CFString, fontSize, nil)
         let white = CGColor(red: 1, green: 1, blue: 1, alpha: 1)
-        let iconSize = fontSize
+        var iconSize = fontSize
         let iconTextGap = iconTextGapRef * sx
         let groupGap = groupGapRef * sx
         let rowGap = rowGapRef * sy
         let padX = padXRef * sx
         let padY = padYRef * sy
 
-        let ascent = CTFontGetAscent(font)
-        let descent = CTFontGetDescent(font)
-        let rowHeight = ascent + descent
+        var ascent = CTFontGetAscent(font)
+        var descent = CTFontGetDescent(font)
+        var rowHeight = ascent + descent
 
         // ---- 按设置组行（关掉的项不进胶囊） ----
         // 电量低于 20%：电池图标和百分比变红。
         let isLowBattery = snap.batteryLevel >= 0 && snap.batteryLevel < 0.2
         let red = CGColor(red: 1, green: 0.25, blue: 0.25, alpha: 1)
-        // 上行：时钟图标 + 日期时间
+        // 上行（1.3.18）：日期 + 天气情况文字 + 温度（时间挪到翻页时钟了，胶囊里不带时间；
+        // 天气直接写“晴”这种文字，不画图标）。
         var row1: [Segment] = []
         if settings.showDate, !snap.date.isEmpty {
-            row1 = [.icon(.clock), .text(snap.date, white)]
+            row1.append(.text(snap.date, white))
         }
-        // 下行：天气图标 + 温度、联网方式、音量、电池图标 + 百分比
-        var row2: [Segment] = []
         if settings.showWeather,
            let code = snap.weatherCode, let temp = snap.weatherTemp {
-            row2.append(.icon(.weather(code)))
-            row2.append(.text("\(temp)°", white))
+            row1.append(.text(weatherConditionText(code: code), white))
+            row1.append(.text("\(temp)°", white))
         }
+        // 下行（1.3.18）：联网方式、音量、电池图标 + 百分比（温度挪到上行了，这里不再放天气）。
+        var row2: [Segment] = []
         if settings.showSignal {
             switch snap.network {
             case .wifi:
@@ -701,7 +689,7 @@ enum HUDRenderer {
         // 宽度跟那个表盘对齐；三排、每排两个——电压/电流、功率/电量、最高温/压差。
         // 不再放进底下那个胶囊。
         var bmsItems: [String] = []
-        // 老虎机和 BMS 面板互斥：老虎机开时 BMS 面板不画（设置页里也会互斥关，
+        // 翻页时钟和 BMS 面板互斥：翻页时钟开时 BMS 面板不画（设置页里也会互斥关，
         // 这里是扩展侧兜底，两个绝不同时出现）。
         if settings.showBMS, !settings.showSlot, let bms = snap.bms {
             bmsItems = [String(format: "电压 %.2fV", bms.voltage),
@@ -747,19 +735,40 @@ enum HUDRenderer {
         }
 
         // 只画非空的行；行数决定胶囊高度（一行就矮一点）。BMS 不再进胶囊。
-        let measuredRows = [measure(row1), measure(row2), measure(row5)].filter { !$0.items.isEmpty }
+        var measuredRows = [measure(row1), measure(row2), measure(row5)].filter { !$0.items.isEmpty }
         // 全关了、又没 BMS、又没来电：返回全透明层（旧胶囊随之消失）。
         if measuredRows.isEmpty && bmsItems.isEmpty && !snap.calling {
             return context.makeImage()
         }
 
-        let contentWidth = measuredRows.map { $0.width }.max() ?? 0
+        // 1.3.18：胶囊宽度跟翻页时钟/表盘对齐（204）。没 BMS 时强制 204 宽；
+        // 内容太宽就缩字号（按比例缩，最小 10pt，最多 8 轮），保证不溢出。
+        var contentWidth = measuredRows.map { $0.width }.max() ?? 0
+        if bmsItems.isEmpty {
+            let maxContentW = CGFloat(204) * sx - padX * 2
+            var guardCount = 0
+            while contentWidth > maxContentW && fontSize > 10 && guardCount < 8 {
+                guardCount += 1
+                fontSize = max(10, fontSize * maxContentW / contentWidth)
+                font = CTFontCreateWithName("Helvetica-Bold" as CFString, fontSize, nil)
+                iconSize = fontSize
+                ascent = CTFontGetAscent(font)
+                descent = CTFontGetDescent(font)
+                rowHeight = ascent + descent
+                measuredRows = [measure(row1), measure(row2), measure(row5)].filter { !$0.items.isEmpty }
+                contentWidth = measuredRows.map { $0.width }.max() ?? 0
+            }
+        }
+
         // 1.3.11：有 BMS 面板时，胶囊宽度跟它对齐（281，左沿 375），上下两块一样宽。
+        // 1.3.18：没 BMS 时（翻页时钟在用），胶囊强制 204 宽，跟翻页时钟/表盘对齐。
         let bmsPanelW = CGFloat(281) * sx
         let bmsPanelX = CGFloat(375) * sx
         var pillW = contentWidth + padX * 2
         if !bmsItems.isEmpty {
             pillW = max(pillW, bmsPanelW)
+        } else {
+            pillW = CGFloat(204) * sx
         }
         let rowCount = measuredRows.count
         let pillH = padY * 2 + rowHeight * CGFloat(rowCount) + rowGap * CGFloat(max(0, rowCount - 1))
@@ -878,105 +887,120 @@ enum HUDRenderer {
             }
         }
 
-        // ---- 老虎机（1.3.12）：跟 BMS 面板同一位置，互斥（BMS 不画时才画） ----
-        // 机身图是用户参考图抠出来的（格子黑色、摇杆已去掉），数字是运行时画的
-        // 文字（1–9 上下滚动，停下变 888），摇杆是运行时画的（向前下方扳动是
-        // 透视缩短，不是往右下甩）。局部坐标是参考点、y 朝下，跟预览同一套数。
-        if settings.showSlot, let tmpl = SlotMachineImage.image() {
-            let slotW: CGFloat = 245  // 1.3.17：面板收窄（281→245），黑底不再比表盘/胶囊宽出一截；机身图 223 宽，两边各留 11px
-            let slotH: CGFloat = 108
-            // 位置（1.3.17）：顶边 265（222→265，往下 43px）。表盘底沿约 234（照片实测，旧 214 是朋友车的数）、胶囊顶约 403，
-            // 两边间隙各约 30px（之前顶边 222 直接压住表盘底沿，照片上老虎机顶边比表盘底沿高约 12px）。
-            let slotTopFromTop: CGFloat = CGFloat(265) * sy
-            let slotX = (refWidth - marginRightRef - slotW) * sx  // 1.3.17：右对齐，X=591（848-12-245）
+        // ---- 翻页时钟（1.3.18，替换老虎机）：跟 BMS 面板互斥（BMS 不画时才画） ----
+        // 显示当前时间 HH:MM:SS，六格翻页卡片；灰卡片、白数字，数字纵向拉长 1.9 倍。
+        // 没有黑色底板，卡片直接浮在地图上。数字变化时翻页动画 0.35 秒。
+        // 局部坐标是参考点、y 朝下，跟预览同一套数。
+        if settings.showSlot {
+            let clockW: CGFloat = 204  // 1.3.18：跟表盘/胶囊同宽 204，严格对齐
+            // 位置：顶边 265（跟老虎机同一位置），右对齐 X=632（848-12-204）。
+            let clockTopFromTop: CGFloat = CGFloat(265) * sy
+            let clockX = (refWidth - marginRightRef - clockW) * sx
             // 局部（参考点、y 朝下）→ CG（y 朝上）的换算。
             func cgRect(_ r: CGRect) -> CGRect {
-                CGRect(x: slotX + r.minX * sx,
-                       y: h - slotTopFromTop - (r.minY + r.height) * sy,
+                CGRect(x: clockX + r.minX * sx,
+                       y: h - clockTopFromTop - (r.minY + r.height) * sy,
                        width: r.width * sx, height: r.height * sy)
             }
-            func cgPoint(_ p: CGPoint) -> CGPoint {
-                CGPoint(x: slotX + p.x * sx, y: h - slotTopFromTop - p.y * sy)
-            }
             context.setShadow(offset: .zero, blur: 0, color: nil)
-            // 底板（1.3.13，方案 A）：黑透磨砂底板，衬白机身——导航地图是白的，
-            // 白机身直接画在上面看不清；跟 BMS 面板同一套黑半透明 + 细亮边，
-            // 只是更黑一点（0.55），白机身才跳得出来。
-            let slotPanel = cgRect(CGRect(x: 0, y: 0, width: slotW, height: slotH))
-            context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.55))
-            context.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: panelBorderAlpha))
-            context.setLineWidth(max(1, 1 * sx))
-            context.addPath(CGPath(roundedRect: slotPanel,
-                                   cornerWidth: panelCornerRef * sx,
-                                   cornerHeight: panelCornerRef * sy,
-                                   transform: nil))
-            context.drawPath(using: .fillStroke)
-            // 机身图：高 104，横向拉长 1.4（用户定的，左右不那么空），面板内居中。
-            let imgH: CGFloat = 104
-            let imgW: CGFloat = 724 * (imgH / 473) * 1.4
-            let imgX = (slotW - imgW) / 2
-            context.draw(tmpl, in: cgRect(CGRect(x: imgX, y: 2, width: imgW, height: imgH)))
-            // 三格数字：格子窗口（面板局部、y 朝下、参考点），跟预览同一套数。
-            // 1.3.17：面板收窄 36px，机身图跟着左移 18px（imgX 29→11），格子同步左移 18px，
-            // 仍对准模板里的黑格子（图内坐标不变）。
-            let reels: [CGRect] = [
-                CGRect(x: 47.67, y: 38.33, width: 42.33, height: 61.67),
-                CGRect(x: 98.67, y: 38.33, width: 42.33, height: 61.67),
-                CGRect(x: 147.67, y: 38.33, width: 42.67, height: 61.67),
-            ]
-            let digitFont = CTFontCreateWithName("Helvetica-Bold" as CFString, 32 * sy, nil)
+            // 六格：每格 26 宽、88 高，间距 3，冒号宽 7；总宽 191，面板内居中（左右各留 6.5）。
+            // 卡片 y：面板局部 y 10，高度 88。
+            let cardW: CGFloat = 26
+            let cardH: CGFloat = 88
+            let cardGap: CGFloat = 3
+            let colonW: CGFloat = 7
+            let cardY: CGFloat = 10
+            let totalW = 6 * cardW + 2 * colonW + 7 * cardGap  // 191
+            let startX = (clockW - totalW) / 2  // 6.5
+            // 每格 x（面板局部）
+            var cardX: [CGFloat] = []
+            var x = startX
+            for i in 0..<6 {
+                cardX.append(x)
+                x += cardW + cardGap
+                if i == 1 || i == 3 { x += colonW + cardGap }
+            }
+            let digitFont = CTFontCreateWithName("Helvetica-Bold" as CFString, 30 * sy, nil)
             let digitAscent = CTFontGetAscent(digitFont)
             let digitDescent = CTFontGetDescent(digitFont)
-            for (i, reel) in reels.enumerated() {
+            // 纵向拉长 1.9 倍画一个数字，居中在 rect 里（extraScaleY 用于翻页时的折叠）。
+            func drawFlipDigit(_ digit: Int, in rect: CGRect, extraScaleY: CGFloat) {
+                let line = ctLine("\(digit)", font: digitFont, color: white)
+                let w = lineWidth(line)
+                let cx = rect.midX
+                let cy = rect.midY
                 context.saveGState()
-                context.addPath(CGPath(roundedRect: cgRect(reel),
-                                       cornerWidth: reel.width * sx / 2,
-                                       cornerHeight: reel.height * sy / 2,
-                                       transform: nil))
-                context.clip()
-                // 数字带 1–9 循环；偏移 slotOffsets[i]（参考点），画够覆盖格子。
-                let off = slotOffsets[i]
-                let pitch = slotPitch
-                let jMin = Int(floor((off - reel.height / 2 - pitch) / pitch))
-                let jMax = Int(ceil((off + reel.height / 2 + pitch) / pitch))
-                for j in jMin...jMax {
-                    let digit = ((j % 9) + 9) % 9 + 1
-                    let cy = CGFloat(j) * pitch - off + reel.midY
-                    let line = ctLine("\(digit)", font: digitFont, color: white)
-                    let w = lineWidth(line)
-                    let center = cgPoint(CGPoint(x: reel.midX, y: cy))
-                    let baseline = center.y - (digitAscent - digitDescent) / 2
-                    context.textPosition = CGPoint(x: center.x - w / 2, y: baseline)
-                    CTLineDraw(line, context)
-                }
+                context.translateBy(x: cx, y: cy)
+                context.scaleBy(x: 1, y: 1.9 * extraScaleY)
+                context.translateBy(x: -cx, y: -cy)
+                let baseline = cy - (digitAscent - digitDescent) / 2
+                context.textPosition = CGPoint(x: cx - w / 2, y: baseline)
+                CTLineDraw(line, context)
                 context.restoreGState()
             }
-            // 摇杆：从支点（218, 56.1）出发；扳动是向前下方（透视缩短），
-            // 球直直往下掉、杆变短、球微微变大，不是往右下甩。
-            // 1.3.17：支点 x 跟机身图同步左移 18px（236→218）。
-            let pivot = CGPoint(x: 218, y: 56.1)
-            let rodLen: CGFloat = 47
-            let th = slotLever * CGFloat.pi / 180
-            let proj = rodLen * cos(th)
-            let ballCenter = CGPoint(x: pivot.x + 10 * sin(th), y: pivot.y - proj)
-            let ballR = 11 * (1 + 0.18 * sin(th))
-            let pivotCG = cgPoint(pivot)
-            let ballCG = cgPoint(ballCenter)
-            context.setStrokeColor(CGColor(red: 0.78, green: 0.78, blue: 0.78, alpha: 1))
-            context.setLineWidth(max(1, 4 * sx))
-            context.setLineCap(.round)
-            context.beginPath()
-            context.move(to: pivotCG)
-            context.addLine(to: ballCG)
-            context.strokePath()
-            context.setFillColor(white)
-            context.setStrokeColor(CGColor(red: 0.7, green: 0.7, blue: 0.7, alpha: 1))
-            context.setLineWidth(max(1, 2 * sx))
-            context.addEllipse(in: CGRect(x: ballCG.x - ballR * sx,
-                                          y: ballCG.y - ballR * sy,
-                                          width: ballR * 2 * sx,
-                                          height: ballR * 2 * sy))
-            context.drawPath(using: .fillStroke)
+            let now = Date()
+            for i in 0..<6 {
+                let cardRect = cgRect(CGRect(x: cardX[i], y: cardY, width: cardW, height: cardH))
+                // 卡底：灰色圆角（RGB 128）
+                context.setFillColor(CGColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1))
+                context.addPath(CGPath(roundedRect: cardRect,
+                                       cornerWidth: 6 * sx, cornerHeight: 6 * sy,
+                                       transform: nil))
+                context.fillPath()
+                // 分割线（中线，深灰）
+                context.setStrokeColor(CGColor(red: 0.27, green: 0.27, blue: 0.27, alpha: 1))
+                context.setLineWidth(max(1, 2 * sy))
+                context.beginPath()
+                context.move(to: CGPoint(x: cardRect.minX + 2 * sx, y: cardRect.midY))
+                context.addLine(to: CGPoint(x: cardRect.maxX - 2 * sx, y: cardRect.midY))
+                context.strokePath()
+                let digit = max(0, flipDigits[i])
+                // 翻页进度（nil = 没在翻）
+                var progress: CGFloat? = nil
+                if let st = flipStart[i] {
+                    let p = CGFloat(now.timeIntervalSince(st)) / CGFloat(flipDuration)
+                    if p < 1 { progress = p }
+                }
+                if let p = progress {
+                    // 翻页中：下半先换新数字（p>=0.5），上半折叠/展开。
+                    let showOld = p < 0.5
+                    let d = showOld ? flipOld[i] : digit
+                    // 下半
+                    context.saveGState()
+                    context.addPath(CGPath(rect: CGRect(x: cardRect.minX, y: cardRect.minY,
+                                                        width: cardRect.width, height: cardRect.height / 2),
+                                           transform: nil))
+                    context.clip()
+                    drawFlipDigit(d, in: cardRect, extraScaleY: 1)
+                    context.restoreGState()
+                    // 上半（绕分割线折叠/展开）
+                    let squash: CGFloat = showOld ? (1 - p * 2) : (p - 0.5) * 2
+                    context.saveGState()
+                    context.addPath(CGPath(rect: CGRect(x: cardRect.minX, y: cardRect.midY,
+                                                        width: cardRect.width, height: cardRect.height / 2),
+                                           transform: nil))
+                    context.clip()
+                    drawFlipDigit(d, in: cardRect, extraScaleY: max(0.02, squash))
+                    context.restoreGState()
+                    // 翻页阴影：上半蒙一层淡黑，更像真的翻页
+                    context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.12))
+                    context.fill(CGRect(x: cardRect.minX, y: cardRect.midY,
+                                        width: cardRect.width, height: cardRect.height / 2))
+                } else {
+                    drawFlipDigit(digit, in: cardRect, extraScaleY: 1)
+                }
+            }
+            // 冒号（两对圆点，灰底上用深灰点，跟卡片协调）
+            context.setFillColor(CGColor(red: 0.35, green: 0.35, blue: 0.35, alpha: 1))
+            for colonIdx in [1, 3] {
+                let cx = clockX + (cardX[colonIdx] + cardW + cardGap + colonW / 2) * sx
+                let cy = h - clockTopFromTop - (cardY + cardH / 2) * sy
+                for dy in [-10 * sy, 10 * sy] {
+                    context.addEllipse(in: CGRect(x: cx - 3 * sx, y: cy + dy - 3 * sy,
+                                                  width: 6 * sx, height: 6 * sy))
+                    context.fillPath()
+                }
+            }
         }
 
         // 来电：左下角红色圆角条，半透明红底 + 细亮边（不动）。
