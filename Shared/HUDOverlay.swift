@@ -888,7 +888,7 @@ enum HUDRenderer {
             // 位置（1.3.14）：紧贴 P 表盘底沿（顶边 222，离底沿 214 只差 8px），跟 BMS 面板同一算法。
             // 之前是在表盘底沿和胶囊顶之间垂直居中，结果跑到屏幕中部、压住地图/画面（用户 2026-11-21 照片反馈）。
             let slotTopFromTop: CGFloat = CGFloat(222) * sy
-            let slotX = CGFloat(375) * sx
+            let slotX = (refWidth - marginRightRef - slotW) * sx  // 1.3.16：右对齐，贴到 P 表盘下面（之前 375 偏左，不在表盘下面）
             // 局部（参考点、y 朝下）→ CG（y 朝上）的换算。
             func cgRect(_ r: CGRect) -> CGRect {
                 CGRect(x: slotX + r.minX * sx,
