@@ -418,6 +418,7 @@ enum HUDRenderer {
     // 数字带是 1–9 循环，格距 40 参考点；偏移 ≡ 280（= 7×40）时正中是 8。
     private static let slotPitch: CGFloat = 40
     private static var slotOffsets: [CGFloat] = [0, 0, 0]      // 每格滚动偏移（参考点）
+    private static let slotRateMul: [CGFloat] = [1.0, 1.5, 0.7] // 三格转速倍率（1.3.15：各格不同速，骑行时显示不同数字）
     private static var slotLever: CGFloat = 0                   // 摇杆角度 0–80
     private static var slotSpinning = false
     private static var slotStopAt: [Date?] = [nil, nil, nil]    // 每格停下的时刻
@@ -454,10 +455,12 @@ enum HUDRenderer {
                 slotStopAt = [nil, nil, nil]
                 slotSettle = [nil, nil, nil]
             }
-            // 滚动速度随车速：每秒 2 + 车速/10 格；偏移对 360 取余防越滚越大。
-            let rate = slotPitch * (2 + CGFloat(speedKmh) / 10)
+            // 滚动速度随车速：每秒 2 + 车速/10 格；三格转速不同（1.0 / 1.5 / 0.7），
+            // 骑行时三格显示不同数字（真老虎机三格是独立转的），停下仍各滑到 888。
+            // 偏移对 360 取余防越滚越大。
+            let baseRate = slotPitch * (2 + CGFloat(speedKmh) / 10)
             for i in 0..<3 {
-                slotOffsets[i] += rate * dtC
+                slotOffsets[i] += baseRate * slotRateMul[i] * dtC
                 slotOffsets[i] = slotOffsets[i].truncatingRemainder(dividingBy: 9 * slotPitch)
             }
         } else {
