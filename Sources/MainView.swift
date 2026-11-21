@@ -41,7 +41,7 @@ struct MainView: View {
     @AppStorage("nbc.hud.showBattery") private var hudShowBattery = true
     @AppStorage("nbc.hud.showVolume") private var hudShowVolume = true
     @AppStorage("nbc.hud.showBMS") private var hudShowBMS = true
-    @AppStorage("nbc.hud.showSlot") private var hudShowSlot = false // 1.3.12 老虎机：和电池 BMS 互斥
+    @AppStorage("nbc.hud.showSlot") private var hudShowSlot = false // 1.3.18 翻页时钟：和电池 BMS 互斥
     @AppStorage("nbc.hud.position") private var hudPosition = 0 // 0 右下 1 左下 2 左上 3 右上
     @AppStorage("nbc.hud.fontSize") private var hudFontSize = 1 // 0 小 1 中 2 大
     @AppStorage("nbc.keepAlive") private var keepAlive = true
@@ -131,8 +131,6 @@ struct MainView: View {
             if host.isEmpty { host = LanScanner.gatewayGuess() ?? "" }
             applyQuality(qualityIndex)
             postHUDSettings()
-            // 1.3.13：老虎机开着就给它供速度（不开骑行记录也能转）。
-            RideTracker.shared.setSlotTracking(hudShowSlot)
             diagText = Diag.tail(16)
             Diag.log("MainView 出现，版本 \(AppVersion.display)，IP=\(host.isEmpty ? "未填" : host)")
         }
@@ -630,7 +628,7 @@ struct MainView: View {
                 .font(.subheadline)
             Toggle("电池 BMS", isOn: $hudShowBMS)
                 .font(.subheadline)
-            Toggle("老虎机", isOn: $hudShowSlot)
+            Toggle("翻页时钟", isOn: $hudShowSlot)
                 .font(.subheadline)
             Picker("位置", selection: $hudPosition) {
                 Text("右下").tag(0)
@@ -655,7 +653,7 @@ struct MainView: View {
         .onChange(of: hudShowBattery) { _ in postHUDSettings() }
         .onChange(of: hudShowVolume) { _ in postHUDSettings() }
         .onChange(of: hudShowBMS) { v in if v { hudShowSlot = false }; postHUDSettings() }
-        .onChange(of: hudShowSlot) { v in if v { hudShowBMS = false }; postHUDSettings(); RideTracker.shared.setSlotTracking(v) }
+        .onChange(of: hudShowSlot) { v in if v { hudShowBMS = false }; postHUDSettings() }
         .onChange(of: hudPosition) { _ in postHUDSettings() }
         .onChange(of: hudFontSize) { _ in postHUDSettings() }
     }

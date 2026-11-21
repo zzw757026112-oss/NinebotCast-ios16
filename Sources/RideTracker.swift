@@ -107,10 +107,6 @@ final class RideTracker: NSObject, ObservableObject, CLLocationManagerDelegate {
     private var tickTimer: DispatchSourceTimer?
     private var pendingStart = false
 
-    // 老虎机速度（1.3.13）：没骑行记录时也要给老虎机供速度，否则镜像里
-    // 数字不动。开着老虎机就跑定位、发 SpeedRelay；骑行开始后由骑行接管，
-    // 骑行结束、老虎机还开着就继续跑（不停定位、不清中继）。
-    private var slotTracking = false
     private let feedback = UINotificationFeedbackGenerator()
 
     private static let ridesURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -177,15 +173,12 @@ final class RideTracker: NSObject, ObservableObject, CLLocationManagerDelegate {
     func stop() {
         guard riding else { return }
         riding = false
-        // 老虎机还开着：定位和速度中继继续跑（给老虎机供速度），只停骑行计时；
-        // 超速旗也清掉，不然 HUD 红行会在骑行结束后还挂一会儿。
-        if slotTracking {
-            overspeed = false
-        } else {
-            manager.stopUpdatingLocation()
-            SpeedRelay.clear()
-            SpeedRelay.stopPosting()
-        }
+        // 停定位、清速度中继；超速旗也清掉，不然 HUD 红行会在骑行结束后还挂一会儿。
+        // （1.3.18：翻页时钟不吃速度，老虎机供速度的 slotTracking 已删。）
+        overspeed = false
+        manager.stopUpdatingLocation()
+        SpeedRelay.clear()
+        SpeedRelay.stopPosting()
         tickTimer?.cancel(); tickTimer = nil
         if let start = startTime {
             let record = RideRecord(id: UUID(), startTime: start, endTime: Date(),
@@ -199,29 +192,6 @@ final class RideTracker: NSObject, ObservableObject, CLLocationManagerDelegate {
         postLiveState()
         startTime = nil
         Diag.log("骑行记录：结束，\(String(format: "%.2f", distanceM / 1000)) km")
-    }
-
-    /// 老虎机速度开关（1.3.13）：MainView 跟着“老虎机”设置调。
-    /// 开：有定位权限就跑定位、每 2 秒重发速度；没授权就等授权回调。
-    /// 关：没在骑行就停定位、清速度中继。
-    func setSlotTracking(_ on: Bool) {
-        guard on != slotTracking else { return }
-        slotTracking = on
-        if on {
-            switch manager.authorizationStatus {
-            case .authorizedWhenInUse, .authorizedAlways:
-                manager.startUpdatingLocation()
-                SpeedRelay.startPosting()
-            case .notDetermined:
-                break // 等 didChangeAuthorization
-            default:
-                break
-            }
-        } else if !riding {
-            manager.stopUpdatingLocation()
-            SpeedRelay.stopPosting()
-            SpeedRelay.clear()
-        }
     }
 
     func deleteRide(id: UUID) {
@@ -263,9 +233,6 @@ final class RideTracker: NSObject, ObservableObject, CLLocationManagerDelegate {
                 beginRide()
             } else if riding {
                 startLocationUpdates()
-            } else if slotTracking {
-                manager.startUpdatingLocation()
-                SpeedRelay.startPosting()
             }
         case .denied, .restricted:
             locationDenied = true
@@ -285,11 +252,6 @@ final class RideTracker: NSObject, ObservableObject, CLLocationManagerDelegate {
             guard loc.horizontalAccuracy >= 0, loc.horizontalAccuracy <= 65 else { continue }
             if riding {
                 process(loc)
-            } else if slotTracking {
-                // 没骑行、老虎机开着：只给老虎机供速度，不记点、不算里程、不判超速。
-                let kmh = loc.speed >= 0 ? loc.speed * 3.6 : 0
-                currentSpeedKmh = kmh
-                SpeedRelay.update(speedKmh: Int(kmh.rounded()), overspeed: false)
             }
         }
     }
