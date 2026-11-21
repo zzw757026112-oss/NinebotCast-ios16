@@ -185,6 +185,11 @@ enum HUDSettingsRelay {
     static func update(_ settings: HUDSettings) {
         lock.lock()
         _posted = settings
+        // 1.3.13：App 进程自己也要读到这次设置。以前只发 Darwin 通知，
+        // _current 只在扩展（startObserving 收通知）里变，App 进程永远是
+        // 默认值——所以普通投屏（App 自己画 HUD）里老虎机永远画不出来，
+        // BMS 开关/位置/字号也全被忽略。改设置立刻同步本地一份。
+        _current = settings
         lock.unlock()
         postAll()
         log.info("HUD 设置已发：日期 \(settings.showDate ? 1 : 0) 天气 \(settings.showWeather ? 1 : 0) 信号 \(settings.showSignal ? 1 : 0) 电量 \(settings.showBattery ? 1 : 0) 音量 \(settings.showVolume ? 1 : 0) 电池BMS \(settings.showBMS ? 1 : 0) 老虎机 \(settings.showSlot ? 1 : 0) 位置 \(settings.position.rawValue) 字号 \(settings.fontSize.rawValue)")

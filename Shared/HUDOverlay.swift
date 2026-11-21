@@ -908,6 +908,18 @@ enum HUDRenderer {
                 CGPoint(x: slotX + p.x * sx, y: h - slotTopFromTop - p.y * sy)
             }
             context.setShadow(offset: .zero, blur: 0, color: nil)
+            // 底板（1.3.13，方案 A）：黑透磨砂底板，衬白机身——导航地图是白的，
+            // 白机身直接画在上面看不清；跟 BMS 面板同一套黑半透明 + 细亮边，
+            // 只是更黑一点（0.55），白机身才跳得出来。
+            let slotPanel = cgRect(CGRect(x: 0, y: 0, width: slotW, height: slotH))
+            context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.55))
+            context.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: panelBorderAlpha))
+            context.setLineWidth(max(1, 1 * sx))
+            context.addPath(CGPath(roundedRect: slotPanel,
+                                   cornerWidth: panelCornerRef * sx,
+                                   cornerHeight: panelCornerRef * sy,
+                                   transform: nil))
+            context.drawPath(using: .fillStroke)
             // 机身图：高 104，横向拉长 1.4（用户定的，左右不那么空），面板内居中。
             let imgH: CGFloat = 104
             let imgW: CGFloat = 724 * (imgH / 473) * 1.4
