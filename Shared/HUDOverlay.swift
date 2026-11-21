@@ -838,20 +838,14 @@ enum HUDRenderer {
         } // if !measuredRows.isEmpty
 
         // ---- ANT BMS 单独面板（1.3.11，同朋友版 105）：右上角车辆自带表盘下面，宽度跟它对齐 ----
-        // 上下间隙跟底下胶囊一致：面板在表盘底沿和胶囊顶之间垂直居中，两边间隙相等。
+        // 1.3.14：紧贴表盘底沿（顶边 222，离底沿 8px），不再在表盘和胶囊之间垂直居中——
+        // 居中会把它推到屏幕中部、压住地图/画面（用户 2026-11-21 照片反馈）。
         // 位置是按仪表照片量的（848×480 参考系）：表盘左沿 375、宽 281、底沿 214。
         if !bmsItems.isEmpty {
             let bmsLeft = bmsPanelX
             let bmsW = bmsPanelW
             let bmsH = padY * 2 + rowHeight * 3 + rowGap * 2
-            let bmsTopFromTop: CGFloat
-            if !measuredRows.isEmpty {
-                let pBottom = CGFloat(214) * sy
-                let capsuleTop = h - (pillY + pillH)
-                bmsTopFromTop = pBottom + (capsuleTop - pBottom - bmsH) / 2
-            } else {
-                bmsTopFromTop = CGFloat(222) * sy
-            }
+            let bmsTopFromTop: CGFloat = CGFloat(222) * sy
             let bmsY = h - bmsTopFromTop - bmsH
             let bmsPanel = CGRect(x: bmsLeft, y: bmsY, width: bmsW, height: bmsH)
             context.setShadow(offset: .zero, blur: 0, color: nil)
@@ -888,15 +882,9 @@ enum HUDRenderer {
         if settings.showSlot, let tmpl = SlotMachineImage.image() {
             let slotW: CGFloat = 281
             let slotH: CGFloat = 108
-            // 位置：P 表盘底沿（214）和胶囊顶之间垂直居中，跟 BMS 面板同一算法。
-            let slotTopFromTop: CGFloat
-            if !measuredRows.isEmpty {
-                let pBottom = CGFloat(214) * sy
-                let capsuleTop = h - (pillY + pillH)
-                slotTopFromTop = pBottom + (capsuleTop - pBottom - slotH * sy) / 2
-            } else {
-                slotTopFromTop = CGFloat(222) * sy
-            }
+            // 位置（1.3.14）：紧贴 P 表盘底沿（顶边 222，离底沿 214 只差 8px），跟 BMS 面板同一算法。
+            // 之前是在表盘底沿和胶囊顶之间垂直居中，结果跑到屏幕中部、压住地图/画面（用户 2026-11-21 照片反馈）。
+            let slotTopFromTop: CGFloat = CGFloat(222) * sy
             let slotX = CGFloat(375) * sx
             // 局部（参考点、y 朝下）→ CG（y 朝上）的换算。
             func cgRect(_ r: CGRect) -> CGRect {
